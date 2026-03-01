@@ -469,7 +469,6 @@ def test_run_dashboard_prompt_flow(monkeypatch):
         lambda **_kwargs: DummyMassiveClient(),
     )
     monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_financials", lambda *_args, **_kwargs: "financials")
     monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
     monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
     monkeypatch.setattr(
@@ -484,7 +483,7 @@ def test_run_dashboard_prompt_flow(monkeypatch):
 
     assert sidebar.write_args == ("Suggested", ["AAPL", "MSFT"])
     assert len(st.tabs_created) == 3
-    assert len(st.dataframes) == 0
+    assert len(st.dataframes) == 1
     assert len(st.download_buttons) == 2
     assert len(st.plots) == 3
     assert st.progress_updates
@@ -531,7 +530,6 @@ def test_run_dashboard_weights_normalized(monkeypatch):
         lambda **_kwargs: DummyMassiveClient(),
     )
     monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_financials", lambda *_args, **_kwargs: "financials")
     monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
     monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
     monkeypatch.setattr(
@@ -571,7 +569,6 @@ def test_run_dashboard_weights_dropped_tickers(monkeypatch):
         lambda **_kwargs: DummyMassiveClient(),
     )
     monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_financials", lambda *_args, **_kwargs: "financials")
     monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
     monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
     monkeypatch.setattr(
@@ -609,7 +606,6 @@ def test_run_dashboard_unparseable_weights_fallback(monkeypatch):
         lambda **_kwargs: DummyMassiveClient(),
     )
     monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_financials", lambda *_args, **_kwargs: "financials")
     monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
     monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
     monkeypatch.setattr(
@@ -705,4 +701,4 @@ def test_run_dashboard_all_history_fetches_fail(monkeypatch):
     run_dashboard(_base_config(api_key="key"))
 
     assert "Could not fetch historical price data for any suggested ticker. Please try a different request." in st.markdowns
-    assert sidebar.write_args == ("Suggested", [])
+    assert sidebar.write_args is None
