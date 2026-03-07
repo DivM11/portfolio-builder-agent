@@ -1,19 +1,21 @@
-"""Data client for fetching stock data from Massive.com (formerly Polygon.io).
-
-This module wraps the Massive.com REST API to provide OHLCV price history
-and financial statement data.
-"""
+"""Data client for fetching stock data from Massive.com (formerly Polygon.io)."""
 
 from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from massive import RESTClient
 
 logger = logging.getLogger(__name__)
+
+HISTORY_STATUS_OK = "ok"
+HISTORY_STATUS_RATE_LIMITED = "rate_limited"
+HISTORY_STATUS_NOT_FOUND = "not_found"
+HISTORY_STATUS_EMPTY_DATA = "empty_data"
+HISTORY_STATUS_UNEXPECTED_ERROR = "unexpected_error"
 
 # yfinance-style period strings → number of calendar days
 _PERIOD_DAYS: Dict[str, int] = {
@@ -43,6 +45,62 @@ def create_massive_client(api_key: str) -> RESTClient:
 # Price history
 # ---------------------------------------------------------------------------
 
+def _classify_history_exception(exc: Exception) -> str:
+    text = str(exc).lower()
+    if "429" in text or "rate limit" in text or "too many requests" in text:
+        return HISTORY_STATUS_RATE_LIMITED
+    if "404" in text or "not found" in text or "unknown ticker" in text:
+        return HISTORY_STATUS_NOT_FOUND
+    return HISTORY_STATUS_UNEXPECTED_ERROR
+
+
+def fetch_price_history_with_status(
+    client: RESTClient,
+    ticker: str,
+    period: str = "1y",
+) -> Tuple[pd.DataFrame, str]:
+    """Fetch daily OHLCV price history plus a normalized fetch status."""
+    empty_df = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+
+    days = _PERIOD_DAYS.get(period, 365)
+    to_date = date.today()
+    from_date = to_date - timedelta(days=days)
+
+    try:
+        aggs: List[Any] = list(client.list_aggs(
+            ticker=ticker,
+            multiplier=1,
+            timespan="day",
+            from_=from_date.isoformat(),
+            to=to_date.isoformat(),
+            adjusted=True,
+            sort="asc",
+            limit=50000,
+        ))
+    except Exception as exc:
+        status = _classify_history_exception(exc)
+        logger.exception("Massive.com list_aggs failed for %s status=%s", ticker, status)
+        return empty_df, status
+
+    if not aggs:
+        return empty_df, HISTORY_STATUS_EMPTY_DATA
+
+    df = pd.DataFrame(
+        [
+            {
+                "Open": a.open,
+                "High": a.high,
+                "Low": a.low,
+                "Close": a.close,
+                "Volume": a.volume,
+            }
+            for a in aggs
+        ],
+        index=pd.to_datetime([a.timestamp for a in aggs], unit="ms"),
+    )
+    df.index.name = "Date"
+    return df, HISTORY_STATUS_OK
+
 def fetch_price_history(
     client: RESTClient,
     ticker: str,
@@ -67,42 +125,11 @@ def fetch_price_history(
         Columns: ``Open, High, Low, Close, Volume``.
         Index: ``DatetimeIndex`` named ``"Date"``.
     """
-    days = _PERIOD_DAYS.get(period, 365)
-    to_date = date.today()
-    from_date = to_date - timedelta(days=days)
-
-    try:
-        aggs: List[Any] = list(client.list_aggs(
-            ticker=ticker,
-            multiplier=1,
-            timespan="day",
-            from_=from_date.isoformat(),
-            to=to_date.isoformat(),
-            adjusted=True,
-            sort="asc",
-            limit=50000,
-        ))
-    except Exception:
-        logger.exception("Massive.com list_aggs failed for %s", ticker)
-        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
-
-    if not aggs:
-        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
-
-    df = pd.DataFrame(
-        [
-            {
-                "Open": a.open,
-                "High": a.high,
-                "Low": a.low,
-                "Close": a.close,
-                "Volume": a.volume,
-            }
-            for a in aggs
-        ],
-        index=pd.to_datetime([a.timestamp for a in aggs], unit="ms"),
+    df, _status = fetch_price_history_with_status(
+        client=client,
+        ticker=ticker,
+        period=period,
     )
-    df.index.name = "Date"
     return df
 
 
@@ -201,9 +228,15 @@ def fetch_stock_data(
     Returns
     -------
     dict
-        ``{"history": pd.DataFrame, "financials": pd.DataFrame}``
+        ``{"history": pd.DataFrame, "financials": pd.DataFrame, "history_status": str}``
     """
+    history, history_status = fetch_price_history_with_status(
+        client=client,
+        ticker=ticker,
+        period=history_period,
+    )
     return {
-        "history": fetch_price_history(client, ticker, period=history_period),
-        "financials": fetch_financials(client, ticker, period=financials_period),
+        "history": history,
+        "financials": pd.DataFrame(),
+        "history_status": history_status,
     }

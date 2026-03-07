@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 from typing import Any, Dict, List, Optional
 
 import streamlit as st
@@ -42,13 +43,21 @@ logger = logging.getLogger(__name__)
 MODEL_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+(?::[a-zA-Z0-9_.-]+)?$")
 
 
-def _log_backend(message: str, *args: object) -> None:
-    logger.warning(message, *args)
-    try:
-        rendered = message % args if args else message
-    except Exception:
-        rendered = f"{message} | args={args}"
-    print(rendered, flush=True)
+def _new_correlation_id() -> str:
+    return uuid.uuid4().hex[:12]
+
+
+def _get_session_id() -> str:
+    session_id = st.session_state.get("session_id")
+    if not session_id:
+        session_id = _new_correlation_id()
+        st.session_state["session_id"] = session_id
+    return session_id
+
+
+def _log_backend(message: str, *args: object, session_id: Optional[str] = None, run_id: Optional[str] = None) -> None:
+    prefix = f"[session={session_id or 'n/a'} run={run_id or 'n/a'}] "
+    logger.warning(prefix + message, *args)
 
 
 def _is_model_name_valid(model_name: str) -> bool:
@@ -63,6 +72,8 @@ def _create_openrouter_completion(
     max_tokens: int,
     temperature: float,
     messages: List[Dict[str, str]],
+    session_id: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> tuple[Any, Optional[int]]:
     model_valid = _is_model_name_valid(model)
     _log_backend(
@@ -73,9 +84,17 @@ def _create_openrouter_completion(
         max_tokens,
         temperature,
         len(messages),
+        session_id=session_id,
+        run_id=run_id,
     )
     if not model_valid:
-        _log_backend("[%s] Model name may be malformed: %s", request_name, model)
+        _log_backend(
+            "[%s] Model name may be malformed: %s",
+            request_name,
+            model,
+            session_id=session_id,
+            run_id=run_id,
+        )
 
     try:
         raw_client = client.chat.completions.with_raw_response
@@ -90,6 +109,8 @@ def _create_openrouter_completion(
             "[%s] OpenRouter response received status_code=%s",
             request_name,
             status_code,
+            session_id=session_id,
+            run_id=run_id,
         )
         return raw_response.parse(), status_code
     except AttributeError:
@@ -102,10 +123,17 @@ def _create_openrouter_completion(
         _log_backend(
             "[%s] OpenRouter response received status_code=unavailable",
             request_name,
+            session_id=session_id,
+            run_id=run_id,
         )
         return response, None
     except Exception:
-        logger.exception("[%s] OpenRouter request failed", request_name)
+        logger.exception(
+            "[session=%s run=%s] [%s] OpenRouter request failed",
+            session_id or "n/a",
+            run_id or "n/a",
+            request_name,
+        )
         raise
 
 
@@ -174,6 +202,8 @@ def generate_tickers(
     max_tokens: int,
     temperature: float,
     delimiter: str,
+    session_id: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> tuple[List[str], str]:
     """Generate ticker suggestions from the LLM and return parsed + raw output."""
     response, _status_code = _create_openrouter_completion(
@@ -182,6 +212,8 @@ def generate_tickers(
         model=model,
         max_tokens=max_tokens,
         temperature=temperature,
+        session_id=session_id,
+        run_id=run_id,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
@@ -238,6 +270,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         dashboard["default_portfolio_size"],
         ui["chat_intro"],
     )
+    _get_session_id()
 
     st.sidebar.header(ui["sidebar_header"])
     st.sidebar.number_input(
@@ -275,6 +308,8 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         prompt_input = st.chat_input(ui["chat_placeholder"])
 
     if prompt_input:
+        session_id = _get_session_id()
+        run_id = _new_correlation_id()
         _push_chat_message("user", prompt_input, chat_tab)
         client = create_openrouter_client(
             api_key=api_key,
@@ -301,17 +336,23 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             max_tokens=outputs_cfg["ticker_max_tokens"],
             temperature=temperatures_cfg["ticker"],
             delimiter=dashboard["ticker_delimiter"],
+            session_id=session_id,
+            run_id=run_id,
         )
 
         if not has_valid_tickers(tickers):
             _log_backend(
                 "Ticker validation failed. Raw model output from OpenRouter: %s",
                 ticker_raw_output,
+                session_id=session_id,
+                run_id=run_id,
             )
             _log_backend(
                 "Ticker validation failed details: output_len=%s output_repr=%r",
                 len(ticker_raw_output or ""),
                 ticker_raw_output,
+                session_id=session_id,
+                run_id=run_id,
             )
             _push_chat_message("assistant", ui["ticker_validation_error"], chat_tab)
             return
@@ -336,7 +377,12 @@ def run_dashboard(config: Dict[str, Any]) -> None:
 
         data_by_ticker: Dict[str, Dict[str, Any]] = {}
         tickers_with_history: List[str] = []
-        failed_history_tickers: List[str] = []
+        failed_history_by_status: Dict[str, List[str]] = {
+            "rate_limited": [],
+            "not_found": [],
+            "empty_data": [],
+            "unexpected_error": [],
+        }
         total_tickers = len(tickers)
         progress_text = ui.get("fetch_progress_start", "Fetching market data...")
         with chat_tab:
@@ -362,8 +408,13 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                     massive_client=massive_client,
                 )
             except Exception:
-                logger.exception("Failed to fetch ticker data for %s", ticker)
-                failed_history_tickers.append(ticker)
+                logger.exception(
+                    "[session=%s run=%s] Failed to fetch ticker data for %s",
+                    session_id,
+                    run_id,
+                    ticker,
+                )
+                failed_history_by_status["unexpected_error"].append(ticker)
                 progress.progress(
                     index / total_tickers,
                     text=progress_text,
@@ -371,8 +422,13 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 continue
 
             history = ticker_data.get("history", pd.DataFrame())
+            history_status = ticker_data.get("history_status", "ok")
             if history is None or history.empty or "Close" not in history.columns:
-                failed_history_tickers.append(ticker)
+                if history_status not in failed_history_by_status:
+                    history_status = "unexpected_error"
+                if history_status == "ok":
+                    history_status = "empty_data"
+                failed_history_by_status[history_status].append(ticker)
                 progress.progress(
                     index / total_tickers,
                     text=progress_text,
@@ -389,11 +445,29 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         ticker_status.empty()
         progress.empty()
 
-        if failed_history_tickers:
-            warning_message = ui.get(
-                "history_fetch_warning",
-                "No historical data was found for: {tickers}",
-            ).format(tickers=", ".join(failed_history_tickers))
+        warning_templates = {
+            "rate_limited": ui.get(
+                "history_fetch_warning_rate_limited",
+                "Rate-limited while fetching historical price data for: {tickers}. Please retry shortly.",
+            ),
+            "not_found": ui.get(
+                "history_fetch_warning_not_found",
+                "Ticker not found for historical price data: {tickers}. These were skipped.",
+            ),
+            "empty_data": ui.get(
+                "history_fetch_warning_empty_data",
+                ui.get("history_fetch_warning", "No historical data was found for: {tickers}"),
+            ),
+            "unexpected_error": ui.get(
+                "history_fetch_warning_unexpected_error",
+                "Unexpected error while fetching historical price data for: {tickers}. These were skipped.",
+            ),
+        }
+
+        for status, failed_tickers in failed_history_by_status.items():
+            if not failed_tickers:
+                continue
+            warning_message = warning_templates[status].format(tickers=", ".join(failed_tickers))
             with chat_tab:
                 st.warning(warning_message)
             _push_chat_message("assistant", warning_message, chat_tab)
@@ -428,6 +502,8 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             model=models_cfg["weights"],
             max_tokens=outputs_cfg["weights_max_tokens"],
             temperature=temperatures_cfg["weights"],
+            session_id=session_id,
+            run_id=run_id,
             messages=[
                 {"role": "system", "content": prompts_cfg["weights_system"]},
                 {"role": "user", "content": weights_prompt},
@@ -436,7 +512,12 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         weights_text = _extract_message_text(weights_response)
         parsed_weights = parse_weights_payload(weights_text)
         if not parsed_weights:
-            _log_backend("Weight parsing failed. Raw output: %s", weights_text)
+            _log_backend(
+                "Weight parsing failed. Raw output: %s",
+                weights_text,
+                session_id=session_id,
+                run_id=run_id,
+            )
             _push_chat_message(
                 "assistant",
                 ui["weights_fallback_message"],
@@ -487,6 +568,8 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             model=models_cfg["analysis"],
             max_tokens=outputs_cfg["analysis_max_tokens"],
             temperature=temperatures_cfg["analysis"],
+            session_id=session_id,
+            run_id=run_id,
             messages=[
                 {"role": "system", "content": prompts_cfg["analysis_system"]},
                 {"role": "user", "content": analysis_prompt},
@@ -522,7 +605,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 selected_tickers=tickers,
             )
             if history_fig is not None:
-                st.plotly_chart(history_fig, use_container_width=True)
+                st.plotly_chart(history_fig, width="stretch")
 
             st.caption(ui["download_prompt"])
             for ticker in tickers:
@@ -545,7 +628,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                     allocation, title=ui["portfolio_output_label"],
                 )
                 if alloc_fig is not None:
-                    st.plotly_chart(alloc_fig, use_container_width=True)
+                    st.plotly_chart(alloc_fig, width="stretch")
 
             stats = st.session_state.get("portfolio_stats", {})
             if stats:
@@ -559,18 +642,18 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                         "1Y Return": f"{stats.get('return_1y', 0):.2%}",
                     }]
                 )
-                st.dataframe(stats_df, use_container_width=True, hide_index=True)
+                st.dataframe(stats_df, width="stretch", hide_index=True)
 
             portfolio_series = st.session_state.get("portfolio_series", pd.Series(dtype=float))
             returns_fig = plot_portfolio_returns(portfolio_series, ui["portfolio_returns_label"])
             if returns_fig is not None:
-                st.plotly_chart(returns_fig, use_container_width=True)
+                st.plotly_chart(returns_fig, width="stretch")
 
             portfolio_financials = st.session_state.get("portfolio_financials", {})
             if portfolio_financials:
                 st.subheader(ui["portfolio_financials_label"])
                 st.dataframe(
                     pd.DataFrame([portfolio_financials]),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )

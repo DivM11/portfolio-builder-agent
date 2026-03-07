@@ -4,6 +4,7 @@ import pandas as pd
 
 from src.dashboard import (
     _extract_message_text,
+    _log_backend,
     build_prompt,
     create_openrouter_client,
     fetch_stock_data,
@@ -202,7 +203,9 @@ class DummyStreamlit:
         self.subheaders = []
         self.writes = []
         self.dataframes = []
+        self.dataframe_kwargs = []
         self.plots = []
+        self.plot_kwargs = []
         self.infos = []
         self.download_buttons = []
         self.captions = []
@@ -224,12 +227,14 @@ class DummyStreamlit:
 
     def dataframe(self, df: pd.DataFrame, **kwargs) -> None:
         self.dataframes.append(df)
+        self.dataframe_kwargs.append(kwargs)
 
     def pyplot(self, fig) -> None:
         self.plots.append(fig)
 
     def plotly_chart(self, fig, **_kwargs) -> None:
         self.plots.append(fig)
+        self.plot_kwargs.append(_kwargs)
 
     def info(self, text: str) -> None:
         self.infos.append(text)
@@ -355,6 +360,10 @@ def _base_config(api_key: str | None) -> dict:
             "fetch_progress_start": "Fetching ticker data...",
             "fetch_progress_ticker": "Fetching {ticker} ({current}/{total})",
             "history_fetch_warning": "No historical price data found for: {tickers}. These were skipped.",
+            "history_fetch_warning_rate_limited": "Rate-limited while fetching historical price data for: {tickers}. Please retry shortly.",
+            "history_fetch_warning_not_found": "Ticker not found for historical price data: {tickers}. These were skipped.",
+            "history_fetch_warning_empty_data": "No historical price data found for: {tickers}. These were skipped.",
+            "history_fetch_warning_unexpected_error": "Unexpected error while fetching historical price data for: {tickers}. These were skipped.",
             "history_fetch_all_failed": "Could not fetch historical price data for any suggested ticker. Please try a different request.",
             "history_empty_message": "History empty",
             "portfolio_empty_message": "Portfolio empty",
@@ -486,6 +495,10 @@ def test_run_dashboard_prompt_flow(monkeypatch):
     assert len(st.dataframes) == 1
     assert len(st.download_buttons) == 2
     assert len(st.plots) == 3
+    assert all(kwargs.get("width") == "stretch" for kwargs in st.plot_kwargs)
+    assert all("use_container_width" not in kwargs for kwargs in st.plot_kwargs)
+    assert all(kwargs.get("width") == "stretch" for kwargs in st.dataframe_kwargs)
+    assert all("use_container_width" not in kwargs for kwargs in st.dataframe_kwargs)
     assert st.progress_updates
     assert "Suggested tickers: AAPL, MSFT" in st.markdowns
     assert "analysis" in st.markdowns
@@ -702,3 +715,44 @@ def test_run_dashboard_all_history_fetches_fail(monkeypatch):
 
     assert "Could not fetch historical price data for any suggested ticker. Please try a different request." in st.markdowns
     assert sidebar.write_args is None
+
+
+def test_run_dashboard_warns_rate_limited(monkeypatch):
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, chat_input_value="prompt")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    monkeypatch.setattr(
+        "src.dashboard.create_openrouter_client",
+        lambda **_kwargs: DummyClient(["AAPL"]),
+    )
+    monkeypatch.setattr(
+        "src.dashboard.create_massive_client",
+        lambda **_kwargs: DummyMassiveClient(),
+    )
+    monkeypatch.setattr(
+        "src.dashboard.fetch_stock_data",
+        lambda *_args, **_kwargs: {
+            "history": pd.DataFrame(),
+            "financials": pd.DataFrame(),
+            "history_status": "rate_limited",
+        },
+    )
+
+    run_dashboard(_base_config(api_key="key"))
+
+    assert any("Rate-limited" in warning for warning in st.warnings)
+    assert any("Rate-limited" in message for message in st.markdowns)
+
+
+def test_log_backend_logs_without_print(monkeypatch, caplog):
+    caplog.set_level("WARNING")
+
+    def _fail_print(*_args, **_kwargs):
+        raise AssertionError("print should not be called")
+
+    monkeypatch.setattr("builtins.print", _fail_print)
+
+    _log_backend("hello %s", "world", session_id="session-1", run_id="run-1")
+
+    assert "[session=session-1 run=run-1] hello world" in caplog.text

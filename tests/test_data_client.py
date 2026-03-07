@@ -91,6 +91,22 @@ class DummyEmptyVx:
         return []
 
 
+class DummyNoFinancialsVx:
+    def list_stock_financials(self, **_kwargs):
+        raise AssertionError("Financials endpoint should not be called")
+
+
+class DummyNoFinancialsClient:
+    def __init__(self):
+        self.vx = DummyNoFinancialsVx()
+
+    def list_aggs(self, **_kwargs):
+        return [
+            DummyAgg(100, 105, 99, 102, 1000, 1700000000000),
+            DummyAgg(102, 106, 101, 104, 1200, 1700086400000),
+        ]
+
+
 # ---------------------------------------------------------------------------
 # Tests — price history
 # ---------------------------------------------------------------------------
@@ -161,9 +177,20 @@ def test_fetch_stock_data_returns_all_keys():
     client = DummyMassiveClient()
     data = fetch_stock_data(client, "AAPL", history_period="1y", financials_period="quarterly")
 
-    assert set(data.keys()) == {"history", "financials"}
+    assert set(data.keys()) == {"history", "financials", "history_status"}
     assert not data["history"].empty
-    assert not data["financials"].empty
+    assert data["financials"].empty
+    assert data["history_status"] == "ok"
+
+
+def test_fetch_stock_data_skips_financials_endpoint():
+    client = DummyNoFinancialsClient()
+
+    data = fetch_stock_data(client, "AAPL", history_period="1y", financials_period="quarterly")
+
+    assert not data["history"].empty
+    assert data["financials"].empty
+    assert data["history_status"] == "ok"
 
 
 def test_create_massive_client_calls_rest_client(monkeypatch):
