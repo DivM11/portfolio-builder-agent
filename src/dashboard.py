@@ -350,6 +350,9 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         session_id = _get_session_id()
         run_id = _new_correlation_id()
         _push_chat_message("user", prompt_input, chat_tab)
+        progress_text = ui.get("fetch_progress_start", "Fetching ticker data...")
+        with chat_tab:
+            progress = st.progress(0.0, text=progress_text)
 
         client = create_openrouter_client(
             api_key=api_key,
@@ -381,13 +384,30 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 session_id=session_id,
                 run_id=run_id,
             )
+            progress.progress(1.0, text=progress_text)
         except ValueError as exc:
+            progress.empty()
             error_text = str(exc)
             if "No valid ticker symbols" in error_text:
                 _push_chat_message("assistant", ui["ticker_validation_error"], chat_tab)
+            elif "Rate-limited while fetching historical price data for:" in error_text:
+                with chat_tab:
+                    st.warning(error_text)
+                _push_chat_message("assistant", error_text, chat_tab)
+            elif "Could not fetch historical price data for any suggested ticker" in error_text:
+                _push_chat_message(
+                    "assistant",
+                    ui.get(
+                        "history_fetch_all_failed",
+                        "Could not fetch historical price data for any suggested ticker.",
+                    ),
+                    chat_tab,
+                )
             else:
                 _push_chat_message("assistant", error_text, chat_tab)
             return
+
+            progress.empty()
 
         st.session_state["orchestrator_state"] = orchestrator_state
         _apply_orchestrator_state(orchestrator_state)

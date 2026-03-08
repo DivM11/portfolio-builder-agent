@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
@@ -14,7 +15,15 @@ from src.llm_validation import (
     parse_weights_payload,
 )
 from src.portfolio import allocate_portfolio_by_weights, normalize_weights
+from src.prompt_validation import (
+    PortfolioPromptValidator,
+    PromptValidationRunner,
+    TickerPromptValidator,
+)
 from src.summaries import build_portfolio_summary
+
+
+logger = logging.getLogger(__name__)
 
 
 class PortfolioCreatorAgent(BaseAgent):
@@ -43,6 +52,9 @@ class PortfolioCreatorAgent(BaseAgent):
         super().__init__(llm_service, config)
         self._massive_client_factory = massive_client_factory
         self._stock_data_fetcher = stock_data_fetcher
+        self._validation_runner = PromptValidationRunner(config.get("validations", {}))
+        self._ticker_validator = TickerPromptValidator()
+        self._portfolio_validator = PortfolioPromptValidator()
 
     def _get_recommended_tickers(
         self,
@@ -62,6 +74,15 @@ class PortfolioCreatorAgent(BaseAgent):
 
         ticker_system_template = prompts_cfg.get("ticker_system", self.DEFAULT_TICKER_SYSTEM)
         ticker_template = prompts_cfg.get("ticker_template", self.DEFAULT_TICKER_TEMPLATE)
+
+        self._validation_runner.validate_input(
+            "ticker",
+            self._ticker_validator,
+            {
+                "user_query": user_query,
+                "max_tickers": max_tickers,
+            },
+        )
 
         if followup:
             system_prompt = prompts_cfg.get("creator_followup_system", ticker_system_template).format(
@@ -102,7 +123,11 @@ class PortfolioCreatorAgent(BaseAgent):
         if not massive_api_key:
             raise ValueError("Missing Massive.com API key.")
 
-        massive_client = self._massive_client_factory(massive_api_key)
+        try:
+            massive_client = self._massive_client_factory(massive_api_key)
+        except TypeError:
+            # Test doubles may still expose a zero-arg factory.
+            massive_client = self._massive_client_factory()
         data_by_ticker: Dict[str, Dict[str, Any]] = {}
         tickers_with_history: List[str] = []
         failed_history_by_status: Dict[str, List[str]] = {
@@ -114,12 +139,20 @@ class PortfolioCreatorAgent(BaseAgent):
 
         for ticker in tickers:
             try:
-                ticker_data = self._stock_data_fetcher(
-                    ticker=ticker,
-                    history_period=stocks_cfg.get("history_period", "1y"),
-                    financials_period=stocks_cfg.get("financials_period", "quarterly"),
-                    massive_client=massive_client,
-                )
+                try:
+                    ticker_data = self._stock_data_fetcher(
+                        ticker,
+                        stocks_cfg.get("history_period", "1y"),
+                        stocks_cfg.get("financials_period", "quarterly"),
+                        massive_client,
+                    )
+                except TypeError:
+                    ticker_data = self._stock_data_fetcher(
+                        ticker=ticker,
+                        history_period=stocks_cfg.get("history_period", "1y"),
+                        financials_period=stocks_cfg.get("financials_period", "quarterly"),
+                        massive_client=massive_client,
+                    )
             except Exception:
                 failed_history_by_status["unexpected_error"].append(ticker)
                 continue
@@ -154,6 +187,16 @@ class PortfolioCreatorAgent(BaseAgent):
         temperatures_cfg = openrouter_cfg.get("temperatures", {})
         models_cfg = openrouter_cfg.get("models", {})
 
+        validation_errors: List[str] = self._validation_runner.validate_input(
+            "portfolio",
+            self._portfolio_validator,
+            {
+                "user_input": user_input,
+                "tickers": tickers,
+                "summary_text": summary_text,
+            },
+        )
+
         weights_prompt = prompts_cfg.get("weights_template", self.DEFAULT_WEIGHTS_TEMPLATE).format(
             user_input=user_input,
             tickers=", ".join(tickers),
@@ -173,12 +216,23 @@ class PortfolioCreatorAgent(BaseAgent):
         )
         text = self.llm_service.extract_message_text(response)
         parsed = parse_weights_payload(text)
+        validation_errors.extend(
+            self._validation_runner.validate_output(
+                "portfolio",
+                self._portfolio_validator,
+                {
+                    "raw_output": text,
+                    "parsed_output": parsed,
+                },
+            )
+        )
         dropped = sorted(set(tickers) - set(parsed.keys())) if parsed else []
         weights = normalize_weights(parsed, tickers) if parsed else normalize_weights({}, tickers)
         return weights, {
             "weights_raw_text": text,
             "weights_parse_failed": not bool(parsed),
             "weights_dropped": dropped,
+            "validation_errors": validation_errors,
         }
 
     def _run(
@@ -201,13 +255,32 @@ class PortfolioCreatorAgent(BaseAgent):
             run_id=run_id,
             followup=followup,
         )
+        validation_errors: List[str] = self._validation_runner.validate_output(
+            "ticker",
+            self._ticker_validator,
+            {
+                "raw_output": ticker_raw_output,
+                "parsed_output": recommended_tickers,
+                "max_tickers": max_tickers,
+            },
+        )
         merged_tickers = recommended_tickers[:max_tickers] if max_tickers > 0 else []
 
         if not has_valid_tickers(merged_tickers):
+            logger.warning(
+                "Ticker validation failed. Raw model output from OpenRouter: %s",
+                ticker_raw_output,
+            )
             raise ValueError("No valid ticker symbols found from LLM output.")
 
         data_by_ticker, tickers_with_history, failed_history = self._fetch_data_and_filter_tickers(merged_tickers)
         if not tickers_with_history:
+            rate_limited_tickers = failed_history.get("rate_limited", [])
+            if rate_limited_tickers:
+                raise ValueError(
+                    "Rate-limited while fetching historical price data for: "
+                    + ", ".join(rate_limited_tickers)
+                )
             raise ValueError("Could not fetch historical price data for any suggested ticker.")
 
         summary_text = build_portfolio_summary(
@@ -222,6 +295,7 @@ class PortfolioCreatorAgent(BaseAgent):
             session_id=session_id,
             run_id=run_id,
         )
+        validation_errors.extend(weights_meta.pop("validation_errors", []))
         allocation = allocate_portfolio_by_weights(
             tickers=tickers_with_history,
             total_amount=portfolio_size,
@@ -238,6 +312,7 @@ class PortfolioCreatorAgent(BaseAgent):
                 "recommended_tickers": recommended_tickers,
                 "ticker_raw_output": ticker_raw_output,
                 "failed_history_by_status": failed_history,
+                "validation_errors": validation_errors,
                 **weights_meta,
             },
         )

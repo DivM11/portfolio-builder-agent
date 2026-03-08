@@ -44,6 +44,13 @@ def _config():
                 "weights_template": "{user_input} {tickers} {summary}",
             },
         },
+        "validations": {
+            "enabled": True,
+            "validate_input": True,
+            "validate_output": True,
+            "fail_fast": False,
+            "prompts": {"ticker": True, "portfolio": True, "analysis": True},
+        },
     }
 
 
@@ -127,3 +134,45 @@ def test_run_initial_raises_when_no_valid_tickers():
         assert False, "Expected ValueError"
     except ValueError as exc:
         assert "No valid ticker symbols" in str(exc)
+
+
+def test_run_initial_collects_validation_errors_when_not_fail_fast():
+    cfg = _config()
+    cfg["validations"]["fail_fast"] = False
+    llm = DummyLLMService([
+        "AAPL, MSFT",
+        '{"weights": {"AAPL": 0.2, "MSFT": 0.2}}',
+    ])
+    agent = PortfolioCreatorAgent(
+        llm_service=llm,
+        config=cfg,
+        massive_client_factory=lambda _api_key: object(),
+        stock_data_fetcher=_fetcher,
+    )
+
+    result = agent.run_initial({"user_input": "balanced", "portfolio_size": 1000.0})
+    errors = result.metadata.get("validation_errors", [])
+
+    assert errors
+    assert any("portfolio.output" in err for err in errors)
+
+
+def test_run_initial_fail_fast_raises_on_invalid_weights_output():
+    cfg = _config()
+    cfg["validations"]["fail_fast"] = True
+    llm = DummyLLMService([
+        "AAPL, MSFT",
+        '{"weights": {"AAPL": 0.2, "MSFT": 0.2}}',
+    ])
+    agent = PortfolioCreatorAgent(
+        llm_service=llm,
+        config=cfg,
+        massive_client_factory=lambda _api_key: object(),
+        stock_data_fetcher=_fetcher,
+    )
+
+    try:
+        agent.run_initial({"user_input": "balanced", "portfolio_size": 1000.0})
+        assert False, "Expected validation failure"
+    except ValueError as exc:
+        assert "portfolio.output" in str(exc)

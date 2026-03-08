@@ -96,6 +96,16 @@ openrouter:
 agents:
   max_iterations: 3
 
+validations:
+  enabled: true
+  validate_input: true
+  validate_output: true
+  fail_fast: false
+  prompts:
+    ticker: true
+    portfolio: true
+    analysis: true
+
 stocks:
   history_period: "1y"
   financials_period: "quarterly"

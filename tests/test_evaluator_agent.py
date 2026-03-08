@@ -30,7 +30,14 @@ def _config():
                 "evaluator_followup_system": "sys",
                 "evaluator_followup_template": "{user_input} {summary} {previous_analysis} {applied_changes}",
             },
-        }
+        },
+        "validations": {
+            "enabled": True,
+            "validate_input": True,
+            "validate_output": True,
+            "fail_fast": False,
+            "prompts": {"ticker": True, "portfolio": True, "analysis": True},
+        },
     }
 
 
@@ -73,3 +80,24 @@ def test_evaluator_followup_returns_empty_suggestions_when_no_json():
 
     assert result.analysis_text == content
     assert result.suggestions == {}
+
+
+def test_evaluator_fail_fast_raises_on_empty_analysis_output():
+    cfg = _config()
+    cfg["validations"]["fail_fast"] = True
+    agent = PortfolioEvaluatorAgent(DummyLLMService("   "), cfg)
+
+    try:
+        agent.run_initial(
+            {
+                "user_input": "growth",
+                "portfolio_size": 1000.0,
+                "tickers": ["AAPL"],
+                "weights": {"AAPL": 1.0},
+                "allocation": {"AAPL": 1000.0},
+                "summary_text": "summary",
+            }
+        )
+        assert False, "Expected validation failure"
+    except ValueError as exc:
+        assert "analysis.output" in str(exc)
