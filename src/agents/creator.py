@@ -11,7 +11,6 @@ from src.data_client import create_massive_client, fetch_stock_data
 from src.llm_validation import (
     extract_valid_tickers,
     has_valid_tickers,
-    parse_include_exclude_payload,
     parse_weights_payload,
 )
 from src.portfolio import allocate_portfolio_by_weights, normalize_weights
@@ -19,14 +18,6 @@ from src.summaries import build_portfolio_summary
 
 
 class PortfolioCreatorAgent(BaseAgent):
-    DEFAULT_EXTRACTOR_SYSTEM = (
-        "Extract explicit US ticker symbols from user preferences. "
-        "Return strict JSON only: {\"include\": [\"AAPL\"], \"exclude\": [\"TSLA\"]}."
-    )
-    DEFAULT_EXTRACTOR_TEMPLATE = (
-        "User request: {user_input}\n"
-        "Extract explicitly requested include/exclude tickers. If none, return empty arrays."
-    )
     DEFAULT_TICKER_SYSTEM = (
         "You are a financial assistant. Return up to {num_tickers} comma-separated US stock tickers. "
         "No explanations, no commentary."
@@ -52,65 +43,6 @@ class PortfolioCreatorAgent(BaseAgent):
         super().__init__(llm_service, config)
         self._massive_client_factory = massive_client_factory
         self._stock_data_fetcher = stock_data_fetcher
-
-    @staticmethod
-    def apply_ticker_overrides(
-        recommended: List[str],
-        include: List[str],
-        exclude: List[str],
-        max_tickers: int,
-    ) -> List[str]:
-        output: List[str] = []
-        for ticker in recommended:
-            ticker_up = str(ticker).upper()
-            if ticker_up not in output:
-                output.append(ticker_up)
-
-        exclude_set = {ticker.upper() for ticker in exclude}
-        for ticker in include:
-            ticker_up = str(ticker).upper()
-            if ticker_up not in output and ticker_up not in exclude_set:
-                output.append(ticker_up)
-
-        output = [ticker for ticker in output if ticker not in exclude_set]
-        if max_tickers <= 0:
-            return []
-        return output[:max_tickers]
-
-    def _extract_explicit_tickers(
-        self,
-        user_query: str,
-        *,
-        session_id: Optional[str] = None,
-        run_id: Optional[str] = None,
-    ) -> tuple[List[str], List[str]]:
-        openrouter_cfg = self.config.get("openrouter", {})
-        prompts_cfg = openrouter_cfg.get("prompts", {})
-        outputs_cfg = openrouter_cfg.get("outputs", {})
-        temperatures_cfg = openrouter_cfg.get("temperatures", {})
-        models_cfg = openrouter_cfg.get("models", {})
-        dashboard_cfg = self.config.get("dashboard", {})
-
-        prompt_template = prompts_cfg.get("extractor_template", self.DEFAULT_EXTRACTOR_TEMPLATE)
-        prompt = prompt_template.format(user_input=user_query)
-        response, _ = self.llm_service.complete(
-            request_name="ticker_extractor",
-            model=models_cfg.get("extractor") or models_cfg.get("ticker", "anthropic/claude-3.5-haiku"),
-            max_tokens=outputs_cfg.get("extractor_max_tokens", 50),
-            temperature=temperatures_cfg.get("extractor", 0.0),
-            session_id=session_id,
-            run_id=run_id,
-            messages=[
-                {"role": "system", "content": prompts_cfg.get("extractor_system", self.DEFAULT_EXTRACTOR_SYSTEM)},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        text = self.llm_service.extract_message_text(response)
-        include, exclude = parse_include_exclude_payload(text)
-        delimiter = dashboard_cfg.get("ticker_delimiter", ",")
-        include_clean = [t for t in extract_valid_tickers(delimiter.join(include), delimiter=delimiter)]
-        exclude_clean = [t for t in extract_valid_tickers(delimiter.join(exclude), delimiter=delimiter)]
-        return include_clean, exclude_clean
 
     def _get_recommended_tickers(
         self,
@@ -254,8 +186,6 @@ class PortfolioCreatorAgent(BaseAgent):
         context: Dict[str, Any],
         *,
         followup: bool,
-        include_overrides: Optional[List[str]] = None,
-        exclude_overrides: Optional[List[str]] = None,
     ) -> AgentResult:
         user_input = context["user_input"]
         portfolio_size = float(context["portfolio_size"])
@@ -264,29 +194,14 @@ class PortfolioCreatorAgent(BaseAgent):
         session_id = context.get("session_id")
         run_id = context.get("run_id")
 
-        include, exclude = self._extract_explicit_tickers(
-            user_input,
-            session_id=session_id,
-            run_id=run_id,
-        )
-        if include_overrides:
-            include = list(dict.fromkeys(include + [item.upper() for item in include_overrides]))
-        if exclude_overrides:
-            exclude = list(dict.fromkeys(exclude + [item.upper() for item in exclude_overrides]))
-
         recommended_tickers, ticker_raw_output = self._get_recommended_tickers(
-            user_input=user_input,
+            user_query=user_input,
             max_tickers=max_tickers,
             session_id=session_id,
             run_id=run_id,
             followup=followup,
         )
-        merged_tickers = self.apply_ticker_overrides(
-            recommended_tickers,
-            include,
-            exclude,
-            max_tickers=max_tickers,
-        )
+        merged_tickers = recommended_tickers[:max_tickers] if max_tickers > 0 else []
 
         if not has_valid_tickers(merged_tickers):
             raise ValueError("No valid ticker symbols found from LLM output.")
@@ -315,8 +230,6 @@ class PortfolioCreatorAgent(BaseAgent):
 
         return AgentResult(
             tickers=tickers_with_history,
-            include_tickers=include,
-            exclude_tickers=exclude,
             data_by_ticker=data_by_ticker,
             summary_text=summary_text,
             weights=weights,
@@ -333,11 +246,5 @@ class PortfolioCreatorAgent(BaseAgent):
         return self._run(context, followup=False)
 
     def run_followup(self, context: Dict[str, Any], feedback: Dict[str, Any]) -> AgentResult:
-        add = [str(t).upper() for t in feedback.get("add", [])]
-        remove = [str(t).upper() for t in feedback.get("remove", [])]
-        return self._run(
-            context,
-            followup=True,
-            include_overrides=add,
-            exclude_overrides=remove,
-        )
+        _ = feedback
+        return self._run(context, followup=True)

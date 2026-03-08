@@ -63,28 +63,23 @@ openrouter:
 
   models:
     ticker: "anthropic/claude-3.5-haiku"
-    extractor: "anthropic/claude-3.5-haiku"
     weights: "anthropic/claude-3.5-haiku"
     analysis: "anthropic/claude-3.5-haiku"
     evaluator: "anthropic/claude-3.5-haiku"
 
   outputs:
-    extractor_max_tokens: 50
     ticker_max_tokens: 100
     weights_max_tokens: 400
     analysis_max_tokens: 500
     evaluator_max_tokens: 800
 
   temperatures:
-    extractor: 0.0
     ticker: 0.2
     weights: 0.1
     analysis: 0.2
     evaluator: 0.2
 
   prompts:
-    extractor_system: "Extract explicit US ticker symbols from user preferences. Return strict JSON only: {\"include\": [\"AAPL\"], \"exclude\": [\"TSLA\"]}."
-    extractor_template: "User request: {user_input}\nExtract explicitly requested include/exclude tickers. If none, return empty arrays."
     ticker_system: "You are a financial assistant. Return up to {num_tickers} comma-separated US stock tickers. No explanations, no commentary."
     ticker_template: "Create a portfolio with up to {num_tickers} US stock tickers for: {user_input}"
     creator_followup_system: "You are a financial assistant refining ticker selection. Return up to {num_tickers} comma-separated US stock tickers. No explanations."

@@ -52,3 +52,24 @@ def test_evaluator_parses_suggestions():
     assert result.suggestions["add"] == ["NVDA"]
     assert result.suggestions["remove"] == ["TSLA"]
     assert result.suggestions["reweight"]["AAPL"] == 0.3
+
+
+def test_evaluator_followup_returns_empty_suggestions_when_no_json():
+    content = "Updated portfolio looks balanced with manageable risk."
+    agent = PortfolioEvaluatorAgent(DummyLLMService(content), _config())
+
+    result = agent.run_followup(
+        {
+            "user_input": "growth",
+            "portfolio_size": 1000.0,
+            "tickers": ["AAPL"],
+            "weights": {"AAPL": 1.0},
+            "allocation": {"AAPL": 1000.0},
+            "summary_text": "summary",
+            "previous_analysis": "prior",
+        },
+        {"add": ["NVDA"]},
+    )
+
+    assert result.analysis_text == content
+    assert result.suggestions == {}

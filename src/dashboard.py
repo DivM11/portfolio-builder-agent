@@ -360,7 +360,12 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             },
         )
         llm_service = LLMService(client)
-        creator_agent = PortfolioCreatorAgent(llm_service=llm_service, config=config)
+        creator_agent = PortfolioCreatorAgent(
+            llm_service=llm_service,
+            config=config,
+            massive_client_factory=create_massive_client,
+            stock_data_fetcher=fetch_stock_data,
+        )
         evaluator_agent = PortfolioEvaluatorAgent(llm_service=llm_service, config=config)
         orchestrator = AgentOrchestrator(
             creator_agent=creator_agent,
@@ -377,7 +382,11 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 run_id=run_id,
             )
         except ValueError as exc:
-            _push_chat_message("assistant", str(exc), chat_tab)
+            error_text = str(exc)
+            if "No valid ticker symbols" in error_text:
+                _push_chat_message("assistant", ui["ticker_validation_error"], chat_tab)
+            else:
+                _push_chat_message("assistant", error_text, chat_tab)
             return
 
         st.session_state["orchestrator_state"] = orchestrator_state

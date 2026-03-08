@@ -10,8 +10,6 @@ from typing import Any, Dict, List
 @dataclass
 class AgentResult:
     tickers: List[str] = field(default_factory=list)
-    include_tickers: List[str] = field(default_factory=list)
-    exclude_tickers: List[str] = field(default_factory=list)
     data_by_ticker: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     summary_text: str = ""
     weights: Dict[str, float] = field(default_factory=dict)

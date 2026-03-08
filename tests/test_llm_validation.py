@@ -4,7 +4,6 @@ from src.llm_validation import (
     extract_valid_tickers,
     has_valid_tickers,
     parse_evaluator_suggestions,
-    parse_include_exclude_payload,
     parse_weights_payload,
     validate_weight_sum,
 )
@@ -64,13 +63,6 @@ def test_parse_weights_payload_with_surrounding_text():
     result = parse_weights_payload(text)
 
     assert result == {"GOOG": 0.7, "META": 0.3}
-
-
-def test_parse_include_exclude_payload():
-    include, exclude = parse_include_exclude_payload('{"include": ["aapl"], "exclude": ["tsla"]}')
-
-    assert include == ["AAPL"]
-    assert exclude == ["TSLA"]
 
 
 def test_parse_evaluator_suggestions():

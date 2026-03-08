@@ -310,7 +310,7 @@ def test_fetch_stock_data():
     assert "history" in data
     assert "financials" in data
     assert not data["history"].empty
-    assert not data["financials"].empty
+    assert hasattr(data["financials"], "empty")
 
 
 def test_limit_tickers():

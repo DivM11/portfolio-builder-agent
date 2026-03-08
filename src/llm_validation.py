@@ -83,25 +83,6 @@ def validate_weight_sum(weights: Dict[str, float], tolerance: float = 0.02) -> T
     return abs(total - 1.0) <= tolerance, total
 
 
-def parse_include_exclude_payload(text: str) -> Tuple[List[str], List[str]]:
-    cleaned = _extract_json_string(text)
-    try:
-        payload = json.loads(cleaned)
-    except json.JSONDecodeError:
-        return [], []
-
-    include: List[str] = []
-    exclude: List[str] = []
-    if isinstance(payload, dict):
-        include_raw = payload.get("include", [])
-        exclude_raw = payload.get("exclude", [])
-        if isinstance(include_raw, list):
-            include = [str(item).upper() for item in include_raw]
-        if isinstance(exclude_raw, list):
-            exclude = [str(item).upper() for item in exclude_raw]
-    return include, exclude
-
-
 def parse_evaluator_suggestions(text: str) -> Dict[str, object]:
     cleaned = _extract_json_string(text)
     try:

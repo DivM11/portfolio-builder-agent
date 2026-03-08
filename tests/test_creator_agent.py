@@ -29,19 +29,15 @@ def _config():
         "massive": {"api": {"api_key": "k"}},
         "openrouter": {
             "models": {
-                "extractor": "anthropic/claude-3.5-haiku",
                 "ticker": "anthropic/claude-3.5-haiku",
                 "weights": "anthropic/claude-3.5-haiku",
             },
             "outputs": {
-                "extractor_max_tokens": 50,
                 "ticker_max_tokens": 100,
                 "weights_max_tokens": 200,
             },
-            "temperatures": {"extractor": 0.0, "ticker": 0.2, "weights": 0.1},
+            "temperatures": {"ticker": 0.2, "weights": 0.1},
             "prompts": {
-                "extractor_system": "sys",
-                "extractor_template": "{user_input}",
                 "ticker_system": "sys {num_tickers}",
                 "ticker_template": "{user_input}",
                 "weights_system": "sys",
@@ -58,18 +54,9 @@ def _fetcher(**kwargs):
     return {"history": history, "financials": pd.DataFrame(), "history_status": "ok", "ticker": ticker}
 
 
-def test_apply_ticker_overrides():
-    output = PortfolioCreatorAgent.apply_ticker_overrides(
-        ["AAPL", "MSFT"], ["NVDA"], ["MSFT"], max_tickers=5
-    )
-
-    assert output == ["AAPL", "NVDA"]
-
-
 def test_run_initial_builds_portfolio_result():
     llm = DummyLLMService([
-        '{"include": ["NVDA"], "exclude": []}',
-        "AAPL, MSFT",
+        "AAPL, MSFT, NVDA",
         '{"weights": {"AAPL": 0.5, "MSFT": 0.3, "NVDA": 0.2}}',
     ])
     agent = PortfolioCreatorAgent(
@@ -88,13 +75,9 @@ def test_run_initial_builds_portfolio_result():
 
 def test_run_initial_with_legacy_config_keys():
     legacy_config = _config()
-    legacy_config["openrouter"]["prompts"].pop("extractor_system", None)
-    legacy_config["openrouter"]["prompts"].pop("extractor_template", None)
-    legacy_config["openrouter"]["models"].pop("extractor", None)
     legacy_config["dashboard"] = {}
 
     llm = DummyLLMService([
-        '{"include": [], "exclude": []}',
         "AAPL, MSFT",
         '{"weights": {"AAPL": 0.6, "MSFT": 0.4}}',
     ])
@@ -109,3 +92,38 @@ def test_run_initial_with_legacy_config_keys():
 
     assert result.tickers == ["AAPL", "MSFT"]
     assert round(sum(result.weights.values()), 3) == 1.0
+
+
+def test_run_followup_applies_add_remove_feedback():
+    llm = DummyLLMService([
+        "AAPL, TSLA",
+        '{"weights": {"AAPL": 0.6, "TSLA": 0.4}}',
+    ])
+    agent = PortfolioCreatorAgent(
+        llm_service=llm,
+        config=_config(),
+        massive_client_factory=lambda _api_key: object(),
+        stock_data_fetcher=_fetcher,
+    )
+
+    result = agent.run_followup({"user_input": "refine", "portfolio_size": 1000.0}, {"add": ["NVDA"]})
+
+    assert set(result.tickers) == {"AAPL", "TSLA"}
+
+
+def test_run_initial_raises_when_no_valid_tickers():
+    llm = DummyLLMService([
+        "???",
+    ])
+    agent = PortfolioCreatorAgent(
+        llm_service=llm,
+        config=_config(),
+        massive_client_factory=lambda _api_key: object(),
+        stock_data_fetcher=_fetcher,
+    )
+
+    try:
+        agent.run_initial({"user_input": "bad", "portfolio_size": 1000.0})
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert "No valid ticker symbols" in str(exc)
