@@ -27,9 +27,11 @@ from src.data_client import (
     create_massive_client,
     fetch_stock_data as _massive_fetch_stock_data,
 )
+from src.event_store import create_event_store
 from src.llm_validation import (
     extract_valid_tickers,
 )
+from src.logging_config import set_log_context
 from src.plots import (
     plot_history,
     plot_portfolio_allocation,
@@ -68,11 +70,6 @@ def _get_session_id() -> str:
     return session_id
 
 
-def _log_backend(message: str, *args: object, session_id: Optional[str] = None, run_id: Optional[str] = None) -> None:
-    prefix = f"[session={session_id or 'n/a'} run={run_id or 'n/a'}] "
-    logger.warning(prefix + message, *args)
-
-
 def _is_model_name_valid(model_name: str) -> bool:
     return bool(MODEL_NAME_PATTERN.match(model_name))
 
@@ -89,24 +86,24 @@ def _create_openrouter_completion(
     run_id: Optional[str] = None,
 ) -> tuple[Any, Optional[int]]:
     model_valid = _is_model_name_valid(model)
-    _log_backend(
-        "[%s] OpenRouter request start model=%s valid_model_format=%s max_tokens=%s temperature=%s messages=%s",
+    logger.info(
+        "[session=%s run=%s] [%s] OpenRouter request start model=%s valid_model_format=%s max_tokens=%s temperature=%s messages=%s",
+        session_id or "n/a",
+        run_id or "n/a",
         request_name,
         model,
         model_valid,
         max_tokens,
         temperature,
         len(messages),
-        session_id=session_id,
-        run_id=run_id,
     )
     if not model_valid:
-        _log_backend(
-            "[%s] Model name may be malformed: %s",
+        logger.warning(
+            "[session=%s run=%s] [%s] Model name may be malformed: %s",
+            session_id or "n/a",
+            run_id or "n/a",
             request_name,
             model,
-            session_id=session_id,
-            run_id=run_id,
         )
 
     try:
@@ -118,12 +115,12 @@ def _create_openrouter_completion(
             messages=messages,
         )
         status_code = getattr(raw_response, "status_code", None)
-        _log_backend(
-            "[%s] OpenRouter response received status_code=%s",
+        logger.info(
+            "[session=%s run=%s] [%s] OpenRouter response received status_code=%s",
+            session_id or "n/a",
+            run_id or "n/a",
             request_name,
             status_code,
-            session_id=session_id,
-            run_id=run_id,
         )
         return raw_response.parse(), status_code
     except AttributeError:
@@ -133,11 +130,11 @@ def _create_openrouter_completion(
             temperature=temperature,
             messages=messages,
         )
-        _log_backend(
-            "[%s] OpenRouter response received status_code=unavailable",
+        logger.info(
+            "[session=%s run=%s] [%s] OpenRouter response received status_code=unavailable",
+            session_id or "n/a",
+            run_id or "n/a",
             request_name,
-            session_id=session_id,
-            run_id=run_id,
         )
         return response, None
     except Exception:
@@ -268,6 +265,7 @@ def _init_state(default_user_input: str, default_portfolio_size: float, chat_int
     state.setdefault("excluded_tickers", [])
     state.setdefault("tickr_data_manager", TickrDataManager())
     state.setdefault("tickr_summary_manager", TickrSummaryManager())
+    state.setdefault("event_store", None)
 
 
 def _chat_avatar(role: str) -> Optional[str]:
@@ -325,7 +323,10 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         dashboard["default_portfolio_size"],
         ui["chat_intro"],
     )
-    _get_session_id()
+    session_id = _get_session_id()
+    set_log_context(session_id=session_id)
+    if st.session_state.get("event_store") is None:
+        st.session_state["event_store"] = create_event_store(config.get("event_store", {}))
 
     st.sidebar.header(ui["sidebar_header"])
     st.sidebar.number_input(
@@ -372,6 +373,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
     if prompt_input:
         session_id = _get_session_id()
         run_id = _new_correlation_id()
+        set_log_context(session_id=session_id, run_id=run_id)
         _push_chat_message("user", prompt_input, chat_tab)
         progress_text = ui.get("fetch_progress_start", "Fetching ticker data...")
         with chat_tab:
@@ -385,7 +387,11 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 "X-Title": api_cfg["app_title"],
             },
         )
-        llm_service = LLMService(client)
+        llm_service = LLMService(
+            client,
+            event_store=st.session_state["event_store"],
+            schema_version=int(config.get("event_store", {}).get("schema_version", 1)),
+        )
         display_summary = PortfolioDisplaySummary()
         creator_agent = PortfolioCreatorAgent(
             llm_service=llm_service,
@@ -400,6 +406,8 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             creator_agent=creator_agent,
             evaluator_agent=evaluator_agent,
             max_iterations=config.get("agents", {}).get("max_iterations", 3),
+            event_store=st.session_state["event_store"],
+            schema_version=int(config.get("event_store", {}).get("schema_version", 1)),
         )
         st.session_state["orchestrator"] = orchestrator
 
@@ -535,7 +543,11 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                         chat_tab,
                     )
             elif reject:
-                final_state = orchestrator.reject_changes(orchestrator_state)
+                final_state = orchestrator.reject_changes(
+                    orchestrator_state,
+                    session_id=_get_session_id(),
+                    run_id=_new_correlation_id(),
+                )
                 st.session_state["orchestrator_state"] = final_state
                 _push_chat_message("assistant", ui.get("evaluator_rejected", "Keeping current portfolio without changes."), chat_tab)
 

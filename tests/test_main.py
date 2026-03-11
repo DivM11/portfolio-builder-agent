@@ -29,13 +29,22 @@ def test_main_runs(monkeypatch):
         def run_dashboard(config):
             DummyDashboardModule.called_with = config
 
+    class DummyLoggingModule:
+        called_with = None
+
+        @staticmethod
+        def configure_logging(config):
+            DummyLoggingModule.called_with = config
+
     monkeypatch.setitem(sys.modules, "streamlit", dummy_st)
     monkeypatch.setitem(sys.modules, "src.config", DummyConfigModule)
     monkeypatch.setitem(sys.modules, "src.dashboard", DummyDashboardModule)
+    monkeypatch.setitem(sys.modules, "src.logging_config", DummyLoggingModule)
 
     main_path = Path(__file__).resolve().parents[1] / "main.py"
     runpy.run_path(str(main_path), run_name="__main__")
 
     assert dummy_st.layout == "wide"
     assert dummy_st.page_icon == "img/finance_icon.png"
+    assert DummyLoggingModule.called_with == {}
     assert DummyDashboardModule.called_with == {"app": {"layout": "wide"}}

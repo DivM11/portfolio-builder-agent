@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict
 
 from src.agents.base import AgentResult
+from src.event_store.base import EventStore, NullEventStore
+from src.event_store.models import EventRecord
 
 STATUS_AWAITING_APPROVAL = "AWAITING_APPROVAL"
 STATUS_COMPLETE = "COMPLETE"
 STATUS_MAX_ITERATIONS_REACHED = "MAX_ITERATIONS_REACHED"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -27,10 +32,42 @@ class OrchestratorState:
 
 
 class AgentOrchestrator:
-    def __init__(self, creator_agent: Any, evaluator_agent: Any, max_iterations: int = 3) -> None:
+    def __init__(
+        self,
+        creator_agent: Any,
+        evaluator_agent: Any,
+        max_iterations: int = 3,
+        event_store: EventStore | None = None,
+        schema_version: int = 1,
+    ) -> None:
         self.creator_agent = creator_agent
         self.evaluator_agent = evaluator_agent
         self.max_iterations = max(1, int(max_iterations))
+        self.event_store = event_store or NullEventStore()
+        self.schema_version = schema_version
+
+    def _record_user_action(
+        self,
+        *,
+        action: str,
+        user_input: str,
+        session_id: str | None,
+        run_id: str | None,
+        iteration: int,
+        payload: Dict[str, Any] | None = None,
+    ) -> None:
+        self.event_store.record(
+            EventRecord(
+                event_type="user_action",
+                schema_version=self.schema_version,
+                session_id=session_id or "n/a",
+                run_id=run_id or "n/a",
+                action=action,
+                action_payload=payload or {"user_input": user_input},
+                agent="orchestrator",
+                iteration=iteration,
+            )
+        )
 
     @staticmethod
     def _has_actionable_suggestions(suggestions: Dict[str, Any]) -> bool:
@@ -47,6 +84,7 @@ class AgentOrchestrator:
         session_id: str | None = None,
         run_id: str | None = None,
     ) -> OrchestratorState:
+        logger.info("Orchestrator start iteration=1")
         creator_context = {
             "user_input": user_input,
             "portfolio_size": portfolio_size,
@@ -73,6 +111,15 @@ class AgentOrchestrator:
         else:
             status = STATUS_COMPLETE
 
+        self._record_user_action(
+            action="new_prompt",
+            user_input=user_input,
+            session_id=session_id,
+            run_id=run_id,
+            iteration=1,
+            payload={"user_input": user_input},
+        )
+
         return OrchestratorState(
             user_input=user_input,
             portfolio_size=portfolio_size,
@@ -95,9 +142,11 @@ class AgentOrchestrator:
     ) -> OrchestratorState:
         if state.iteration >= self.max_iterations:
             state.status = STATUS_MAX_ITERATIONS_REACHED
+            logger.info("Orchestrator max iterations reached iteration=%s", state.iteration)
             return state
 
         feedback = state.pending_suggestions or {}
+        logger.info("Orchestrator apply_changes iteration=%s", state.iteration)
         creator_context = {
             "user_input": state.user_input,
             "portfolio_size": state.portfolio_size,
@@ -134,9 +183,33 @@ class AgentOrchestrator:
         else:
             state.status = STATUS_COMPLETE
 
+        self._record_user_action(
+            action="accept_changes",
+            user_input=state.user_input,
+            session_id=session_id,
+            run_id=run_id,
+            iteration=state.iteration,
+            payload=feedback,
+        )
+
         return state
 
-    def reject_changes(self, state: OrchestratorState) -> OrchestratorState:
+    def reject_changes(
+        self,
+        state: OrchestratorState,
+        *,
+        session_id: str | None = None,
+        run_id: str | None = None,
+    ) -> OrchestratorState:
         state.pending_suggestions = {}
         state.status = STATUS_COMPLETE
+        logger.info("Orchestrator reject_changes iteration=%s", state.iteration)
+        self._record_user_action(
+            action="reject_changes",
+            user_input=state.user_input,
+            session_id=session_id,
+            run_id=run_id,
+            iteration=state.iteration,
+            payload={},
+        )
         return state

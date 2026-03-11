@@ -13,6 +13,7 @@ from src.llm_validation import (
     parse_weights_payload,
 )
 from src.agent_models import CreatorContext, CreatorPrompts
+from src.event_store.models import EventRecord
 from src.portfolio import allocate_portfolio_by_weights, normalize_weights
 from src.prompt_validation import (
     PortfolioPromptValidator,
@@ -284,6 +285,19 @@ class PortfolioCreatorAgent(BaseAgent):
             },
         )
         merged_tickers = recommended_tickers[:max_tickers] if max_tickers > 0 else []
+        if hasattr(self.llm_service, "event_store"):
+            self.llm_service.event_store.record(
+                EventRecord(
+                    event_type="llm_parsed",
+                    schema_version=int(self.config.get("event_store", {}).get("schema_version", 1)),
+                    session_id=session_id or "n/a",
+                    run_id=run_id or "n/a",
+                    request_name="ticker_generation_followup" if followup else "ticker_generation",
+                    parsed_output={"tickers": merged_tickers},
+                    validation_errors=validation_errors,
+                    agent="creator",
+                )
+            )
         feedback = feedback or {}
         add_tickers = [str(item).upper() for item in feedback.get("add", [])]
         remove_tickers = [str(item).upper() for item in feedback.get("remove", [])]
@@ -325,6 +339,19 @@ class PortfolioCreatorAgent(BaseAgent):
             run_id=run_id,
         )
         validation_errors.extend(weights_meta.pop("validation_errors", []))
+        if hasattr(self.llm_service, "event_store"):
+            self.llm_service.event_store.record(
+                EventRecord(
+                    event_type="llm_parsed",
+                    schema_version=int(self.config.get("event_store", {}).get("schema_version", 1)),
+                    session_id=session_id or "n/a",
+                    run_id=run_id or "n/a",
+                    request_name="weights_generation",
+                    parsed_output={"weights": weights},
+                    validation_errors=validation_errors,
+                    agent="creator",
+                )
+            )
         allocation = allocate_portfolio_by_weights(
             tickers=tickers_with_history,
             total_amount=portfolio_size,

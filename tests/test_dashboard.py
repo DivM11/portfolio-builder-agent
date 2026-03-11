@@ -5,7 +5,6 @@ import pandas as pd
 from src.dashboard import (
     _apply_orchestrator_state,
     _extract_message_text,
-    _log_backend,
     build_prompt,
     create_openrouter_client,
     fetch_stock_data,
@@ -755,19 +754,6 @@ def test_run_dashboard_warns_rate_limited(monkeypatch):
 
     assert any("Rate-limited" in warning for warning in st.warnings)
     assert any("Rate-limited" in message for message in st.markdowns)
-
-
-def test_log_backend_logs_without_print(monkeypatch, caplog):
-    caplog.set_level("WARNING")
-
-    def _fail_print(*_args, **_kwargs):
-        raise AssertionError("print should not be called")
-
-    monkeypatch.setattr("builtins.print", _fail_print)
-
-    _log_backend("hello %s", "world", session_id="session-1", run_id="run-1")
-
-    assert "[session=session-1 run=run-1] hello world" in caplog.text
 
 
 def test_apply_orchestrator_state_refreshes_selected_recommended_and_excluded(monkeypatch):

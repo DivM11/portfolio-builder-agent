@@ -2,6 +2,25 @@ app:
   title: "Equity Agent Dashboard"
   layout: "wide"
 
+logging:
+  level: "INFO"
+  format: "json"
+  include_timestamps: true
+  include_correlation_ids: true
+
+event_store:
+  enabled: true
+  backend: "sqlite"
+  schema_version: 1
+  sqlite:
+    db_path: "data/events.db"
+  postgres:
+    dsn_env_var: "EVENT_STORE_DSN"
+  buffer:
+    enabled: true
+    flush_interval_seconds: 5
+    max_buffer_size: 100
+
 massive:
   api:
     key_env_var: "MASSIVE_API_KEY"

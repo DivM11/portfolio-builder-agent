@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from src.agents.base import AgentResult, BaseAgent
 from src.agent_models import EvaluatorContext, EvaluatorPrompts
+from src.event_store.models import EventRecord
 from src.llm_validation import parse_evaluator_suggestions
 from src.prompt_validation import AnalysisPromptValidator, PromptValidationRunner
 
@@ -128,6 +129,19 @@ class PortfolioEvaluatorAgent(BaseAgent):
                 },
             )
         )
+        if hasattr(self.llm_service, "event_store"):
+            self.llm_service.event_store.record(
+                EventRecord(
+                    event_type="llm_parsed",
+                    schema_version=int(self.config.get("event_store", {}).get("schema_version", 1)),
+                    session_id=session_id or "n/a",
+                    run_id=run_id or "n/a",
+                    request_name=request_name,
+                    parsed_output=suggestions,
+                    validation_errors=validation_errors,
+                    agent="evaluator",
+                )
+            )
         return AgentResult(
             analysis_text=analysis_text,
             suggestions=suggestions,

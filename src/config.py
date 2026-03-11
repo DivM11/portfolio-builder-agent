@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import os
+import logging
 from pathlib import Path
 from typing import Any, Dict
 
 from omegaconf import OmegaConf
+
+
+logger = logging.getLogger(__name__)
 
 
 def load_config(base_path: Path | None = None) -> Dict[str, Any]:
@@ -18,7 +22,7 @@ def load_config(base_path: Path | None = None) -> Dict[str, Any]:
     """
     root = base_path or Path(__file__).resolve().parents[1]
     config_path = root / "config.yml"
-    print(f"Loading configuration from {config_path}")
+    logger.info("Loading configuration from %s", config_path)
     config = OmegaConf.load(config_path)
 
     # --- OpenRouter API key ---
