@@ -12,8 +12,9 @@ The YFinance Agent is a Python-based application designed to help users build pe
 1. **User Input Handling**: Accepts natural language input to understand user preferences for portfolio creation.
 2. **Stock Data Retrieval**: Fetches financial data from Massive.com, including historical prices and financial statements (income statement, balance sheet, cash flow).
 3. **Resilient Ticker Fetching**: Shows in-chat progress while fetching each ticker and warns when historical data is unavailable for specific symbols.
-4. **Filtering and Analysis**: Applies user-defined filters and performs backtesting and forecasting.
-5. **Interactive Dashboard**: Uses Chat, Historical Prices, and Portfolio tabs, with a post-analysis nudge to open Portfolio results.
+4. **Model Selection**: Users can pick different AI models for each pipeline step (Stock Picker, Weight Allocator, Portfolio Analyst, Portfolio Reviewer) from the sidebar. Available models are configured in `config.yml`.
+5. **Filtering and Analysis**: Applies user-defined filters and performs backtesting and forecasting.
+6. **Interactive Dashboard**: Uses Chat, Historical Prices, and Portfolio tabs, with a post-analysis nudge to open Portfolio results.
 
 ## Agent Design
 
@@ -142,8 +143,14 @@ docker run -p 8501:8501 --env-file .secrets yfinance-agent
 - Python SDK: `massive` (PyPI) — `pip install -U massive`
 
 ### OpenRouter Model Setup
-- The app uses `qwen/qwen3-32b-04-28:nitro` for ticker generation, weight generation, and analysis.
-- OpenRouter settings are grouped under `openrouter.api`, `openrouter.models`, `openrouter.outputs`, `openrouter.temperatures`, and `openrouter.prompts` in [config.yml](config.yml).
+- The app uses configurable models for each pipeline step. Defaults and available choices are set in [config.yml](config.yml) under `openrouter.models` and `openrouter.model_choices`.
+- Users can override the model for each task from the sidebar:
+  - **Stock Picker** — ticker generation
+  - **Weight Allocator** — portfolio weight assignment
+  - **Portfolio Analyst** — analysis and evaluation
+  - **Portfolio Reviewer** — evaluation and change suggestions
+- Default model choices include Claude 3.5 Haiku, Claude 3 Haiku, Gemini Flash 1.5, Gemini 2.0 Flash, Qwen 2.5 72B, and Qwen 2.5 7B.
+- OpenRouter settings are grouped under `openrouter.api`, `openrouter.models`, `openrouter.model_choices`, `openrouter.model_labels`, `openrouter.outputs`, `openrouter.temperatures`, and `openrouter.prompts` in [config.yml](config.yml).
 - Set the API key via environment variable name specified in `openrouter.api.key_env_var` (default: `OPENROUTER_API_KEY`).
 
 ## Using Docker

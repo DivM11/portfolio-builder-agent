@@ -336,6 +336,22 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         key="portfolio_size",
     )
 
+    model_choices = openrouter_cfg.get("model_choices", [])
+    if model_choices:
+        model_labels = openrouter_cfg.get("model_labels", {})
+        default_models = openrouter_cfg.get("default_models", {})
+        st.sidebar.subheader(ui.get("model_selection_header", "Model Selection"))
+        for task_key in ("ticker", "weights", "analysis", "evaluator"):
+            label = model_labels.get(task_key, task_key.title())
+            default = default_models.get(task_key, model_choices[0])
+            idx = model_choices.index(default) if default in model_choices else 0
+            st.sidebar.selectbox(
+                label,
+                options=model_choices,
+                index=idx,
+                key=f"model_{task_key}",
+            )
+
     api_cfg = openrouter_cfg["api"]
     api_key = api_cfg.get("api_key")
     if not api_key:
@@ -414,6 +430,11 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             event_store=st.session_state["event_store"],
             schema_version=int(config.get("event_store", {}).get("schema_version", 1)),
         )
+        if model_choices:
+            for task_key in ("ticker", "weights", "analysis", "evaluator"):
+                selected = st.session_state.get(f"model_{task_key}")
+                if selected:
+                    config["openrouter"]["default_models"][task_key] = selected
         display_summary = PortfolioDisplaySummary()
         creator_agent = PortfolioCreatorAgent(
             llm_service=llm_service,

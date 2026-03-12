@@ -28,7 +28,7 @@ def _config():
         },
         "massive": {"api": {"api_key": "k"}},
         "openrouter": {
-            "models": {
+            "default_models": {
                 "ticker": "anthropic/claude-3.5-haiku",
                 "weights": "anthropic/claude-3.5-haiku",
             },

@@ -33,9 +33,10 @@ dashboard:
 
 ui:
   sidebar_header: "Portfolio Preferences"
+  model_selection_header: "Model Selection"
   portfolio_size_label: "Portfolio Size ($)"
   chat_placeholder: "Describe your portfolio preferences"
-  chat_intro: "Tell me what kind of portfolio you want and I will build it."
+  chat_intro: "Tell me what kind of portfolio you want and I will build it. You can customize the AI models used for each step in the sidebar."
   starter_prompts_label: "Quick start ideas"
   starter_prompts:
     - "Build a long-term growth portfolio focused on AI and cloud leaders."
@@ -91,6 +92,18 @@ openrouter:
     weights: "anthropic/claude-3.5-haiku"
     analysis: "anthropic/claude-3.5-haiku"
     evaluator: "anthropic/claude-3.5-haiku"
+  model_choices:
+    - "anthropic/claude-3.5-haiku"
+    - "anthropic/claude-3-haiku"
+    - "google/gemini-flash-1.5"
+    - "google/gemini-2.0-flash-001"
+    - "qwen/qwen-2.5-72b-instruct"
+    - "qwen/qwen-2.5-7b-instruct"
+  model_labels:
+    ticker: "Stock Picker"
+    weights: "Weight Allocator"
+    analysis: "Portfolio Analyst"
+    evaluator: "Portfolio Reviewer"
 
   outputs:
     ticker_max_tokens: 100

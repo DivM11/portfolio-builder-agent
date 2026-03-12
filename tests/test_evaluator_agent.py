@@ -18,7 +18,7 @@ class DummyLLMService:
 def _config():
     return {
         "openrouter": {
-            "models": {
+            "default_models": {
                 "analysis": "anthropic/claude-3.5-haiku",
                 "evaluator": "anthropic/claude-3.5-haiku",
             },

@@ -128,14 +128,19 @@ class DummySidebar:
     def __init__(self) -> None:
         self.session_state: dict | None = None
         self.header_text = None
+        self.subheader_texts: list[str] = []
         self.multiselect_args = None
         self.number_input_args = None
+        self.selectbox_calls: list[tuple] = []
         self.error_msg = None
         self.write_args = None
         self.warning_msg = None
 
     def header(self, text: str) -> None:
         self.header_text = text
+
+    def subheader(self, text: str) -> None:
+        self.subheader_texts.append(text)
 
     def number_input(
         self,
@@ -149,6 +154,20 @@ class DummySidebar:
             self.session_state.setdefault(key, min_value)
             return self.session_state[key]
         return min_value
+
+    def selectbox(
+        self,
+        label: str,
+        options: list,
+        index: int = 0,
+        key: str | None = None,
+    ) -> str:
+        self.selectbox_calls.append((label, options, index, key))
+        if key and self.session_state is not None:
+            if key not in self.session_state:
+                self.session_state[key] = options[index] if options else ""
+            return self.session_state[key]
+        return options[index] if options else ""
 
     def multiselect(self, label: str, options, default=None, key: str | None = None):
         self.multiselect_args = (label, options, default, key)
@@ -360,6 +379,7 @@ def _base_config(api_key: str | None) -> dict:
         "app": {"title": "Title", "layout": "wide"},
         "ui": {
             "sidebar_header": "Header",
+            "model_selection_header": "Model Selection",
             "portfolio_size_label": "Portfolio Size ($)",
             "chat_placeholder": "Chat",
             "chat_intro": "Intro",
@@ -410,10 +430,22 @@ def _base_config(api_key: str | None) -> dict:
                 "http_referer": "http://localhost",
                 "app_title": "App",
             },
-            "models": {
+            "default_models": {
                 "ticker": "model",
                 "weights": "model",
                 "analysis": "model",
+                "evaluator": "model",
+            },
+            "model_choices": [
+                "model",
+                "anthropic/claude-3.5-haiku",
+                "google/gemini-flash-1.5",
+            ],
+            "model_labels": {
+                "ticker": "Stock Picker",
+                "weights": "Weight Allocator",
+                "analysis": "Portfolio Analyst",
+                "evaluator": "Portfolio Reviewer",
             },
             "outputs": {
                 "ticker_max_tokens": 5,
@@ -831,3 +863,82 @@ def test_run_dashboard_accept_changes_updates_selected_and_suggested(monkeypatch
     assert "TSLA" in st.session_state["excluded_tickers"]
     assert st.session_state["recommended_tickers"] == ["AAPL", "MSFT"]
     assert sidebar.write_args == ("Suggested", st.session_state["tickers"])
+
+
+def test_run_dashboard_shows_model_selectors(monkeypatch):
+    """Model selection dropdowns appear in the sidebar for each task."""
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, chat_input_value=None)
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    run_dashboard(_base_config(api_key="key"))
+
+    labels = [call[0] for call in sidebar.selectbox_calls]
+    assert "Stock Picker" in labels
+    assert "Weight Allocator" in labels
+    assert "Portfolio Analyst" in labels
+    assert "Portfolio Reviewer" in labels
+    assert len(sidebar.selectbox_calls) == 4
+    # Each selectbox should offer the configured choices
+    for _label, options, _index, _key in sidebar.selectbox_calls:
+        assert options == ["model", "anthropic/claude-3.5-haiku", "google/gemini-flash-1.5"]
+
+
+def test_run_dashboard_selected_model_overrides_config(monkeypatch):
+    """When user picks a different model in the sidebar, that model is used."""
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, chat_input_value="prompt")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    # Pre-set session state so the selectbox returns the override
+    st.session_state["model_ticker"] = "google/gemini-flash-1.5"
+    st.session_state["model_weights"] = "google/gemini-flash-1.5"
+
+    captured_models = []
+    original_create = None
+
+    monkeypatch.setattr(
+        "src.dashboard.create_openrouter_client",
+        lambda **_kwargs: DummyClient(
+            [
+                "AAPL, MSFT",
+                '{"weights": {"AAPL": 0.6, "MSFT": 0.4}}',
+                "analysis",
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        "src.dashboard.create_massive_client",
+        lambda **_kwargs: DummyMassiveClient(),
+    )
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
+    monkeypatch.setattr(
+        "src.dashboard.fetch_stock_data",
+        lambda *_args, **_kwargs: {
+            "history": pd.DataFrame({"Close": [1.0]}),
+            "financials": pd.DataFrame({"metric": ["rev"]}),
+        },
+    )
+
+    run_dashboard(_base_config(api_key="key"))
+
+    # The config models should have been overridden by sidebar selections
+    assert st.session_state.get("model_ticker") == "google/gemini-flash-1.5"
+    assert st.session_state.get("model_weights") == "google/gemini-flash-1.5"
+
+
+def test_run_dashboard_no_model_choices_skips_selectors(monkeypatch):
+    """When model_choices is absent, no selectbox is rendered."""
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, chat_input_value=None)
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    cfg = _base_config(api_key="key")
+    cfg["openrouter"].pop("model_choices", None)
+    cfg["openrouter"].pop("model_labels", None)
+
+    run_dashboard(cfg)
+
+    assert len(sidebar.selectbox_calls) == 0

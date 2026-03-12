@@ -100,7 +100,7 @@ class PortfolioCreatorAgent(BaseAgent):
         prompts_cfg = openrouter_cfg.get("prompts", {})
         outputs_cfg = openrouter_cfg.get("outputs", {})
         temperatures_cfg = openrouter_cfg.get("temperatures", {})
-        models_cfg = openrouter_cfg.get("models", {})
+        models_cfg = openrouter_cfg.get("default_models", {})
         dashboard_cfg = self.config.get("dashboard", {})
 
         prompts = CreatorPrompts(
@@ -202,7 +202,7 @@ class PortfolioCreatorAgent(BaseAgent):
         prompts_cfg = openrouter_cfg.get("prompts", {})
         outputs_cfg = openrouter_cfg.get("outputs", {})
         temperatures_cfg = openrouter_cfg.get("temperatures", {})
-        models_cfg = openrouter_cfg.get("models", {})
+        models_cfg = openrouter_cfg.get("default_models", {})
 
         validation_errors: List[str] = self._validation_runner.validate_input(
             "portfolio",

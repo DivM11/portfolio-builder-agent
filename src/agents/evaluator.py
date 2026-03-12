@@ -48,7 +48,7 @@ class PortfolioEvaluatorAgent(BaseAgent):
         prompts_cfg = openrouter_cfg.get("prompts", {})
         outputs_cfg = openrouter_cfg.get("outputs", {})
         temperatures_cfg = openrouter_cfg.get("temperatures", {})
-        models_cfg = openrouter_cfg.get("models", {})
+        models_cfg = openrouter_cfg.get("default_models", {})
 
         prompts = EvaluatorPrompts(
             analysis_system=prompts_cfg.get("evaluator_system", prompts_cfg.get("analysis_system", self.DEFAULT_ANALYSIS_SYSTEM)),
