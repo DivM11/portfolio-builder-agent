@@ -89,14 +89,14 @@ openrouter:
 
   default_models:
     ticker: "anthropic/claude-3.5-haiku"
-    weights: "anthropic/claude-3.5-haiku"
-    analysis: "anthropic/claude-3.5-haiku"
-    evaluator: "anthropic/claude-3.5-haiku"
+    weights: "google/gemini-2.5-flash"
+    analysis: "minimax/minimax-m2.5"
+    evaluator: "qwen/qwen3-32b"
   model_choices:
     - "anthropic/claude-3.5-haiku"
-    - "google/gemini-flash-2.5"
-    - "google/gemini-flash-3.0"
-    - "qwen/qwen-2.5-7b-instruct"
+    - "google/gemini-2.5-flash"
+    - "minimax/minimax-m2.5"
+    - "qwen/qwen3-32b"
   model_labels:
     ticker: "Stock Picker"
     weights: "Weight Allocator"
