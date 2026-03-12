@@ -94,10 +94,8 @@ openrouter:
     evaluator: "anthropic/claude-3.5-haiku"
   model_choices:
     - "anthropic/claude-3.5-haiku"
-    - "anthropic/claude-3-haiku"
-    - "google/gemini-flash-1.5"
-    - "google/gemini-2.0-flash-001"
-    - "qwen/qwen-2.5-72b-instruct"
+    - "google/gemini-flash-2.5"
+    - "google/gemini-flash-3.0"
     - "qwen/qwen-2.5-7b-instruct"
   model_labels:
     ticker: "Stock Picker"
