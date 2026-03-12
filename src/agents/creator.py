@@ -20,8 +20,10 @@ from src.prompt_validation import (
     PromptValidationRunner,
     TickerPromptValidator,
 )
-from src.tickr_data_manager import TickrDataManager
+from src.tickr_data_manager import TickrDataManager, ProgressCallback
 from src.tickr_summary_manager import TickrSummaryManager
+
+TickerCallback = Callable[[List[str]], None]
 
 
 logger = logging.getLogger(__name__)
@@ -152,6 +154,7 @@ class PortfolioCreatorAgent(BaseAgent):
     def _fetch_data_and_filter_tickers(
         self,
         tickers: List[str],
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> tuple[Dict[str, Dict[str, Any]], List[str], Dict[str, List[str]]]:
         stocks_cfg = self.config["stocks"]
         massive_api_key = self.config.get("massive", {}).get("api", {}).get("api_key")
@@ -181,6 +184,7 @@ class PortfolioCreatorAgent(BaseAgent):
             history_period=stocks_cfg.get("history_period", "1y"),
             financials_period=stocks_cfg.get("financials_period", "quarterly"),
             massive_client=massive_client,
+            progress_callback=progress_callback,
         )
 
         return result.data_by_ticker, result.tickers_with_history, result.failed_history_by_status
@@ -255,6 +259,8 @@ class PortfolioCreatorAgent(BaseAgent):
         followup: bool,
         feedback: Dict[str, Any] | None = None,
     ) -> AgentResult:
+        ticker_callback: Optional[TickerCallback] = context.get("_ticker_callback")
+        progress_callback: Optional[ProgressCallback] = context.get("_progress_callback")
         creator_context = CreatorContext(
             user_input=context["user_input"],
             portfolio_size=float(context["portfolio_size"]),
@@ -315,7 +321,12 @@ class PortfolioCreatorAgent(BaseAgent):
             )
             raise ValueError("No valid ticker symbols found from LLM output.")
 
-        data_by_ticker, tickers_with_history, failed_history = self._fetch_data_and_filter_tickers(merged_tickers)
+        if ticker_callback is not None:
+            ticker_callback(merged_tickers)
+
+        data_by_ticker, tickers_with_history, failed_history = self._fetch_data_and_filter_tickers(
+            merged_tickers, progress_callback=progress_callback,
+        )
         if not tickers_with_history:
             rate_limited_tickers = failed_history.get("rate_limited", [])
             if rate_limited_tickers:

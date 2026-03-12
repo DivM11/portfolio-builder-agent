@@ -375,9 +375,31 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         run_id = _new_correlation_id()
         set_log_context(session_id=session_id, run_id=run_id)
         _push_chat_message("user", prompt_input, chat_tab)
-        progress_text = ui.get("fetch_progress_start", "Fetching ticker data...")
-        with chat_tab:
-            progress = st.progress(0.0, text=progress_text)
+
+        progress_holder: Dict[str, Any] = {}
+        progress_start_text = ui.get("fetch_progress_start", "Fetching ticker data...")
+        progress_ticker_template = ui.get(
+            "fetch_progress_ticker", "Fetching {ticker} ({current}/{total})"
+        )
+
+        def _on_tickers_ready(tickers: List[str]) -> None:
+            _push_chat_message(
+                "assistant",
+                ui["ticker_reply_template"].format(tickers=", ".join(tickers)),
+                chat_tab,
+            )
+            with chat_tab:
+                progress_holder["bar"] = st.progress(0.0, text=progress_start_text)
+
+        def _on_fetch_progress(current: int, total: int, ticker: str) -> None:
+            bar = progress_holder.get("bar")
+            if bar is not None and total > 0:
+                bar.progress(
+                    current / total,
+                    text=progress_ticker_template.format(
+                        ticker=ticker, current=current + 1, total=total,
+                    ),
+                )
 
         client = create_openrouter_client(
             api_key=api_key,
@@ -417,11 +439,17 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 portfolio_size=st.session_state["portfolio_size"],
                 session_id=session_id,
                 run_id=run_id,
+                ticker_callback=_on_tickers_ready,
+                progress_callback=_on_fetch_progress,
             )
-            progress.progress(1.0, text=progress_text)
-            progress.empty()
+            bar = progress_holder.get("bar")
+            if bar is not None:
+                bar.progress(1.0, text=progress_start_text)
+                bar.empty()
         except ValueError as exc:
-            progress.empty()
+            bar = progress_holder.get("bar")
+            if bar is not None:
+                bar.empty()
             error_text = str(exc)
             if "No valid ticker symbols" in error_text:
                 _push_chat_message("assistant", ui["ticker_validation_error"], chat_tab)
@@ -446,12 +474,6 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         _apply_orchestrator_state(orchestrator_state)
 
         creator_result = orchestrator_state.creator_result
-        _push_chat_message(
-            "assistant",
-            ui["ticker_reply_template"].format(tickers=", ".join(creator_result.tickers)),
-            chat_tab,
-        )
-
         warning_templates = {
             "rate_limited": ui.get(
                 "history_fetch_warning_rate_limited",

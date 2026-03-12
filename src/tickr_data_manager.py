@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
+
+ProgressCallback = Callable[[int, int, str], None]
 
 
 @dataclass
@@ -40,6 +42,7 @@ class TickrDataManager:
         history_period: str,
         financials_period: str,
         massive_client: Any,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> TickrDataFetchResult:
         failed_history_by_status: Dict[str, List[str]] = {
             "rate_limited": [],
@@ -50,7 +53,9 @@ class TickrDataManager:
         tickers_with_history: List[str] = []
         fetched_tickers: List[str] = []
 
-        for ticker in tickers:
+        for idx, ticker in enumerate(tickers):
+            if progress_callback is not None:
+                progress_callback(idx, len(tickers), ticker)
             ticker_data: Dict[str, Any]
             if self.has_ticker(ticker):
                 ticker_data = self.cache[ticker]

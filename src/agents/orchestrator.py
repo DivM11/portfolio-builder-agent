@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any, Callable, Dict, List, Optional
 
 from src.agents.base import AgentResult
 from src.event_store.base import EventStore, NullEventStore
 from src.event_store.models import EventRecord
+
+TickerCallback = Callable[[List[str]], None]
+ProgressCallback = Callable[[int, int, str], None]
 
 STATUS_AWAITING_APPROVAL = "AWAITING_APPROVAL"
 STATUS_COMPLETE = "COMPLETE"
@@ -83,6 +86,8 @@ class AgentOrchestrator:
         portfolio_size: float,
         session_id: str | None = None,
         run_id: str | None = None,
+        ticker_callback: Optional[TickerCallback] = None,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> OrchestratorState:
         logger.info("Orchestrator start iteration=1")
         creator_context = {
@@ -90,6 +95,8 @@ class AgentOrchestrator:
             "portfolio_size": portfolio_size,
             "session_id": session_id,
             "run_id": run_id,
+            "_ticker_callback": ticker_callback,
+            "_progress_callback": progress_callback,
         }
         creator_result = self.creator_agent.run_initial(creator_context)
 
@@ -139,6 +146,8 @@ class AgentOrchestrator:
         *,
         session_id: str | None = None,
         run_id: str | None = None,
+        ticker_callback: Optional[TickerCallback] = None,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> OrchestratorState:
         if state.iteration >= self.max_iterations:
             state.status = STATUS_MAX_ITERATIONS_REACHED
@@ -152,6 +161,8 @@ class AgentOrchestrator:
             "portfolio_size": state.portfolio_size,
             "session_id": session_id,
             "run_id": run_id,
+            "_ticker_callback": ticker_callback,
+            "_progress_callback": progress_callback,
         }
         creator_result = self.creator_agent.run_followup(creator_context, feedback)
 
