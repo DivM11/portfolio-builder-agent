@@ -14,7 +14,7 @@ class SQLiteEventStore:
     def __init__(self, db_path: str) -> None:
         path = Path(db_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        self._connection = sqlite3.connect(path)
+        self._connection = sqlite3.connect(path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         self._initialize()
 
