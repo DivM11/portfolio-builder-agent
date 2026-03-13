@@ -85,17 +85,17 @@ openrouter:
     base_url: "https://openrouter.ai/api/v1"
     key_env_var: "OPENROUTER_API_KEY"
     http_referer: "http://localhost:8501"
-    app_title: "Equity Agent"
+    app_title: "Portfolio Builder Agent"
 
   default_models:
-    ticker: "anthropic/claude-4.5-haiku"
+    ticker: "anthropic/claude-sonnet-4.5"
     weights: "google/gemini-2.5-flash"
-    analysis: "anthropic/claude-3.5-haiku"
-    evaluator: "anthropic/claude-4.5-sonnet"
+    analysis: "anthropic/claude-haiku-4.5"
+    evaluator: "anthropic/claude-sonnet-4.5"
   model_choices:
     - "anthropic/claude-3.5-haiku"
-    - "anthropic/claude-4.5-haiku"
-    - "anthropic/claude-4.5-sonnet"
+    - "anthropic/claude-haiku-4.5"
+    - "anthropic/claude-sonnet-4.5"
     - "google/gemini-2.5-flash"
   model_labels:
     ticker: "Stock Picker"
