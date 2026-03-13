@@ -174,9 +174,10 @@ def build_prompt(template: str, user_input: str, **kwargs: object) -> str:
 def extract_message_text(response: Any) -> str:
     """Extract text content from an OpenAI-compatible response."""
     try:
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
     except AttributeError:
-        return response["choices"][0]["message"]["content"]
+        content = response["choices"][0]["message"]["content"]
+    return content or ""
 
 
 def extract_usage(response: Any) -> Dict[str, Any] | None:

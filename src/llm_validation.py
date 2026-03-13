@@ -36,6 +36,8 @@ _CODE_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
 def _extract_json_string(text: str) -> str:
     """Extract a JSON object from LLM output that may contain markdown
     code fences, ``<think>`` blocks, or surrounding prose."""
+    if not text:
+        return ""
     cleaned = _THINK_TAG_RE.sub("", text).strip()
 
     fence = _CODE_FENCE_RE.search(cleaned)
