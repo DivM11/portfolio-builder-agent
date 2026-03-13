@@ -1,5 +1,5 @@
 app:
-  title: "Equity Agent Dashboard"
+  title: "Portfolio Builder Agent"
   layout: "wide"
 
 logging:
