@@ -71,3 +71,21 @@ def test_parse_evaluator_suggestions():
     assert result["add"] == ["NVDA"]
     assert result["remove"] == ["TSLA"]
     assert result["reweight"]["AAPL"] == 0.4
+
+
+def test_parse_evaluator_suggestions_empty_string():
+    """Empty string (e.g. from reasoning model null content) returns empty dict."""
+    assert parse_evaluator_suggestions("") == {}
+
+
+def test_parse_evaluator_suggestions_none_input():
+    """None input must not raise."""
+    assert parse_evaluator_suggestions(None) == {}
+
+
+def test_parse_weights_payload_empty_string():
+    assert parse_weights_payload("") == {}
+
+
+def test_parse_weights_payload_none_input():
+    assert parse_weights_payload(None) == {}

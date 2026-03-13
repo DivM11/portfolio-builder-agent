@@ -865,6 +865,47 @@ def test_run_dashboard_accept_changes_updates_selected_and_suggested(monkeypatch
     assert sidebar.write_args == ("Suggested", st.session_state["tickers"])
 
 
+def test_run_dashboard_empty_analysis_text_not_pushed(monkeypatch):
+    """When the evaluator returns empty analysis (reasoning model), no empty
+    chat bubble is rendered, and the 'no changes' message still appears."""
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, chat_input_value="prompt")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    monkeypatch.setattr(
+        "src.dashboard.create_openrouter_client",
+        lambda **_kwargs: DummyClient(
+            [
+                "AAPL, MSFT",
+                '{"weights": {"AAPL": 0.6, "MSFT": 0.4}}',
+                "",  # empty analysis from reasoning model
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        "src.dashboard.create_massive_client",
+        lambda **_kwargs: DummyMassiveClient(),
+    )
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
+    monkeypatch.setattr(
+        "src.dashboard.fetch_stock_data",
+        lambda *_args, **_kwargs: {
+            "history": pd.DataFrame({"Close": [1.0]}),
+            "financials": pd.DataFrame({"metric": ["rev"]}),
+        },
+    )
+
+    run_dashboard(_base_config(api_key="key"))
+
+    # Empty analysis_text must NOT appear as a chat message
+    assert "" not in [m for m in st.markdowns if m == ""]
+    # The no-changes fallback message should appear
+    assert "No further portfolio changes suggested." in st.markdowns
+    assert "Check other tabs" in st.markdowns
+
+
 def test_run_dashboard_shows_model_selectors(monkeypatch):
     """Model selection dropdowns appear in the sidebar for each task."""
     sidebar = DummySidebar()

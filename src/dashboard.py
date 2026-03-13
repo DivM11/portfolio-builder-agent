@@ -535,7 +535,8 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 chat_tab,
             )
 
-        _push_chat_message("assistant", orchestrator_state.evaluator_result.analysis_text, chat_tab)
+        if orchestrator_state.evaluator_result.analysis_text:
+            _push_chat_message("assistant", orchestrator_state.evaluator_result.analysis_text, chat_tab)
 
         if orchestrator_state.pending_suggestions:
             _push_chat_message(

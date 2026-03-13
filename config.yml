@@ -88,15 +88,15 @@ openrouter:
     app_title: "Equity Agent"
 
   default_models:
-    ticker: "anthropic/claude-3.5-haiku"
+    ticker: "anthropic/claude-4.5-haiku"
     weights: "google/gemini-2.5-flash"
-    analysis: "minimax/minimax-m2.5"
-    evaluator: "qwen/qwen3-32b"
+    analysis: "anthropic/claude-3.5-haiku"
+    evaluator: "anthropic/claude-4.5-sonnet"
   model_choices:
     - "anthropic/claude-3.5-haiku"
+    - "anthropic/claude-4.5-haiku"
+    - "anthropic/claude-4.5-sonnet"
     - "google/gemini-2.5-flash"
-    - "minimax/minimax-m2.5"
-    - "qwen/qwen3-32b"
   model_labels:
     ticker: "Stock Picker"
     weights: "Weight Allocator"

@@ -101,3 +101,35 @@ def test_evaluator_fail_fast_raises_on_empty_analysis_output():
         assert False, "Expected validation failure"
     except ValueError as exc:
         assert "analysis.output" in str(exc)
+
+
+def test_evaluator_handles_none_content_from_reasoning_model():
+    """When a reasoning model returns content=None, the evaluator should
+    return empty analysis_text and empty suggestions without crashing."""
+
+    class NullContentLLMService:
+        def complete(self, **_kwargs):
+            return {"choices": [{"message": {"content": None}}]}, 200
+
+        @staticmethod
+        def extract_message_text(response):
+            content = response["choices"][0]["message"]["content"]
+            return content or ""
+
+    cfg = _config()
+    cfg["validations"]["fail_fast"] = False
+    agent = PortfolioEvaluatorAgent(NullContentLLMService(), cfg)
+
+    result = agent.run_initial(
+        {
+            "user_input": "growth",
+            "portfolio_size": 1000.0,
+            "tickers": ["AAPL"],
+            "weights": {"AAPL": 1.0},
+            "allocation": {"AAPL": 1000.0},
+            "summary_text": "summary",
+        }
+    )
+
+    assert result.analysis_text == ""
+    assert result.suggestions == {}

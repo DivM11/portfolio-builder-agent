@@ -57,6 +57,11 @@ def test_extract_message_text_dict():
     assert extract_message_text({"choices": [{"message": {"content": "x"}}]}) == "x"
 
 
+def test_extract_message_text_none_content_returns_empty_string():
+    """Reasoning models may return content=None; extract_message_text must return ''."""
+    assert extract_message_text({"choices": [{"message": {"content": None}}]}) == ""
+
+
 def test_llm_service_complete_with_raw_response():
     service = LLMService(DummyClient())
 
