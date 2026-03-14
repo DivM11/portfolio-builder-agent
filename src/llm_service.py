@@ -180,6 +180,7 @@ class LLMService:
         temperature: float,
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
+        reasoning: Dict[str, Any] | None = None,
         session_id: Optional[str] = None,
         run_id: Optional[str] = None,
     ) -> ToolResponse:
@@ -211,25 +212,33 @@ class LLMService:
 
         try:
             raw_client = self.client.chat.completions.with_raw_response
+            request_kwargs: Dict[str, Any] = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": "auto",
+            }
+            if reasoning:
+                request_kwargs["extra_body"] = {"reasoning": reasoning}
             raw_response = raw_client.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
+                **request_kwargs,
             )
             status_code = getattr(raw_response, "status_code", None)
             parsed_response = raw_response.parse()
         except AttributeError:
-            parsed_response = self.client.chat.completions.create(
-                model=model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-            )
+            request_kwargs = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": "auto",
+            }
+            if reasoning:
+                request_kwargs["extra_body"] = {"reasoning": reasoning}
+            parsed_response = self.client.chat.completions.create(**request_kwargs)
             status_code = None
 
         tool_calls = _extract_tool_calls(parsed_response)

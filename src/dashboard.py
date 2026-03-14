@@ -247,9 +247,23 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         _apply_agent_result(result, financial_metrics)
         if result.tickers:
             _push_chat_message("assistant", ui["ticker_reply_template"].format(tickers=", ".join(result.tickers)), chat_tab)
+        reasoning_text = str(result.metadata.get("reasoning_text", "")).strip()
+        if reasoning_text:
+            _push_chat_message("assistant", f"**Reasoning**\n\n{reasoning_text}", chat_tab)
+
+        tool_invocations = result.metadata.get("tool_invocations", [])
+        if isinstance(tool_invocations, list) and tool_invocations:
+            lines = ["**Tool invocations**"]
+            for invocation in tool_invocations:
+                name = str(invocation.get("name", "unknown_tool"))
+                args = invocation.get("arguments", {})
+                lines.append(f"- {name}: `{args}`")
+            _push_chat_message("assistant", "\n".join(lines), chat_tab)
+
         if result.analysis_text:
             _push_chat_message("assistant", result.analysis_text, chat_tab)
         if result.suggestions:
+            _push_chat_message("assistant", "Suggested portfolio changes", chat_tab)
             _push_chat_message("assistant", PortfolioDisplaySummary().format_suggestions(result.suggestions), chat_tab)
         _push_chat_message("assistant", ui["post_analysis_nudge"], chat_tab)
 

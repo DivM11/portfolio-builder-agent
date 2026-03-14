@@ -70,6 +70,7 @@ class DummyStreamlit:
         self.tabs_created = []
         self.plot_kwargs = []
         self.dataframe_kwargs = []
+        self.button_calls = []
 
     def title(self, _text: str) -> None:
         return None
@@ -85,6 +86,7 @@ class DummyStreamlit:
         return [DummyContainer() for _ in range(count)]
 
     def button(self, _label: str, key: str | None = None):
+        self.button_calls.append((key or _label, _label))
         return False
 
     def chat_input(self, _placeholder: str):
@@ -149,6 +151,35 @@ class DummyAgent:
     def refine(self, **kwargs):
         self.calls.append(("refine", kwargs))
         return self.run(**kwargs)
+
+
+class DummyAgentWithSuggestions(DummyAgent):
+    def run(self, **kwargs):
+        self.calls.append(("run", kwargs))
+        return AgentResult(
+            tickers=["AAPL", "MSFT"],
+            data_by_ticker={
+                "AAPL": {
+                    "history": pd.DataFrame({"Close": [1.0, 1.1]}),
+                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
+                },
+                "MSFT": {
+                    "history": pd.DataFrame({"Close": [1.0, 1.05]}),
+                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
+                },
+            },
+            weights={"AAPL": 0.8, "MSFT": 0.2},
+            allocation={"AAPL": 800.0, "MSFT": 200.0},
+            analysis_text="analysis",
+            suggestions={"add": [], "remove": [], "reweight": {"MSFT": 0.3, "AAPL": 0.7}},
+            metadata={
+                "reasoning_text": "Model reasoning trace",
+                "tool_invocations": [
+                    {"name": "generate_tickers", "arguments": {"tickers": ["AAPL", "MSFT"]}},
+                    {"name": "fetch_ticker_data", "arguments": {"tickers": ["AAPL", "MSFT"]}},
+                ],
+            },
+        )
 
 
 class DummyClient:
@@ -265,3 +296,75 @@ def test_run_dashboard_prompt_uses_single_agent(monkeypatch):
     assert any("Suggested tickers: AAPL, MSFT" in message for message in st.markdowns)
     assert any("analysis" in message for message in st.markdowns)
     assert st.progress_updates
+
+
+def test_run_dashboard_shows_suggestions_and_action_buttons(monkeypatch):
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgentWithSuggestions)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    assert any("Suggested portfolio changes" in message for message in st.markdowns)
+    keys = [key for key, _label in st.button_calls]
+    assert "accept_changes" in keys
+    assert "reject_changes" in keys
+
+
+def test_run_dashboard_shows_reasoning_and_tool_invocations(monkeypatch):
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgentWithSuggestions)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    assert any("Reasoning" in message for message in st.markdowns)
+    assert any("Model reasoning trace" in message for message in st.markdowns)
+    assert any("Tool invocations" in message for message in st.markdowns)
+    assert any("generate_tickers" in message for message in st.markdowns)
+
+
+def test_run_dashboard_history_chart_uses_fetched_data(monkeypatch):
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgent)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    captured = {}
+
+    def _plot_history(history_by_ticker, selected_tickers):
+        captured["history_by_ticker"] = history_by_ticker
+        captured["selected_tickers"] = selected_tickers
+        return "history"
+
+    monkeypatch.setattr("src.dashboard.plot_history", _plot_history)
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    assert captured["selected_tickers"] == ["AAPL", "MSFT"]
+    assert set(captured["history_by_ticker"].keys()) == {"AAPL", "MSFT"}
+    assert any(kwargs.get("width") == "stretch" for kwargs in st.plot_kwargs)

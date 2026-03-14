@@ -148,6 +148,9 @@ class PortfolioAgent:
         max_tokens = int(agent_cfg.get("max_tokens", 4096))
         temperature = float(agent_cfg.get("temperature", 0.2))
         max_tool_rounds = int(agent_cfg.get("max_tool_rounds", 10))
+        reasoning_cfg = agent_cfg.get("reasoning")
+        if not isinstance(reasoning_cfg, dict):
+            reasoning_cfg = None
         schema_version = int(self.config.get("event_store", {}).get("schema_version", 1))
 
         massive_cfg = self.config.get("massive", {}).get("api", {})
@@ -155,6 +158,15 @@ class PortfolioAgent:
         if not massive_api_key:
             raise ValueError("Missing Massive.com API key")
         massive_client = self._massive_client_factory(massive_api_key)
+        work_state: dict[str, Any] = {
+            "tickers": [],
+            "weights": {},
+            "allocation": {},
+            "summary": "",
+            "analysis": {},
+            "tool_invocations": [],
+            "reasoning_text": "",
+        }
 
         for round_index in range(max_tool_rounds):
             response = self.llm_service.complete_with_tools(
@@ -164,11 +176,14 @@ class PortfolioAgent:
                 temperature=temperature,
                 messages=self._messages,
                 tools=self._tool_definitions(),
+                reasoning=reasoning_cfg,
                 session_id=context.session_id,
                 run_id=context.run_id,
             )
 
             if response.has_tool_calls:
+                if response.text:
+                    work_state["reasoning_text"] = str(response.text).strip()
                 assistant_tool_message = {
                     "role": "assistant",
                     "content": response.text or "",
@@ -186,12 +201,14 @@ class PortfolioAgent:
                 }
                 self._messages.append(assistant_tool_message)
                 for call in response.tool_calls:
+                    work_state["tool_invocations"].append({"name": call.name, "arguments": call.arguments})
                     result_payload = self._execute_tool(
                         call.name,
                         call.arguments,
                         context=context,
                         progress_callback=progress_callback,
                         massive_client=massive_client,
+                        work_state=work_state,
                     )
                     self.event_store.record(
                         EventRecord(
@@ -217,10 +234,16 @@ class PortfolioAgent:
                 continue
 
             self._messages.append({"role": "assistant", "content": response.text or ""})
-            result = self._parse_final_result(response.text or "")
+            if response.text:
+                work_state["reasoning_text"] = str(response.text).strip()
+            result = self._parse_final_result(response.text or "", work_state=work_state)
             result.messages = list(self._messages)
             if "excluded_tickers" not in result.metadata:
                 result.metadata["excluded_tickers"] = list(context.excluded_tickers)
+            if work_state["tool_invocations"]:
+                result.metadata["tool_invocations"] = list(work_state["tool_invocations"])
+            if work_state.get("reasoning_text"):
+                result.metadata["reasoning_text"] = work_state["reasoning_text"]
             self._record_event(
                 "agent_complete",
                 context,
@@ -238,12 +261,21 @@ class PortfolioAgent:
         context: AgentContext,
         progress_callback: ProgressCallback | None,
         massive_client: Any,
+        work_state: dict[str, Any],
     ) -> dict[str, Any]:
-        self._record_event(
-            "tool_call",
-            context,
-            action_payload={"tool_name": name, "arguments": arguments},
+        schema_version = int(self.config.get("event_store", {}).get("schema_version", 1))
+        self.event_store.record(
+            EventRecord(
+                event_type="tool_call",
+                schema_version=schema_version,
+                session_id=context.session_id or "n/a",
+                run_id=context.run_id or "n/a",
+                tool_name=name,
+                tool_arguments=arguments,
+                agent="portfolio_agent",
+            )
         )
+        logger.info("Tool invocation: %s args=%s", name, arguments)
         stocks_cfg = self.config.get("stocks", {})
         if name == "generate_tickers":
             payload = generate_tickers_tool(
@@ -254,10 +286,11 @@ class PortfolioAgent:
             filtered = [ticker for ticker in payload["valid_tickers"] if ticker not in excluded]
             payload["valid_tickers"] = filtered
             payload["count"] = len(filtered)
+            work_state["tickers"] = filtered
             return payload
 
         if name == "fetch_ticker_data":
-            return fetch_ticker_data_tool(
+            payload = fetch_ticker_data_tool(
                 arguments,
                 tickr_data_manager=self.tickr_data_manager,
                 stock_data_fetcher=self._stock_data_fetcher,
@@ -266,45 +299,76 @@ class PortfolioAgent:
                 massive_client=massive_client,
                 progress_callback=progress_callback,
             )
+            work_state["tickers"] = payload.get("available_tickers", work_state.get("tickers", []))
+            return payload
 
         if name == "build_summary":
-            return build_summary_tool(
+            payload = build_summary_tool(
                 arguments,
                 tickr_data_manager=self.tickr_data_manager,
                 tickr_summary_manager=self.tickr_summary_manager,
                 financial_metrics=stocks_cfg.get("financials_metrics", []),
             )
+            work_state["summary"] = payload.get("summary", "")
+            work_state["tickers"] = payload.get("tickers", work_state.get("tickers", []))
+            return payload
 
         if name == "allocate_weights":
-            return allocate_weights_tool(arguments)
+            payload = allocate_weights_tool(arguments)
+            work_state["weights"] = payload.get("normalized_weights", {})
+            work_state["allocation"] = payload.get("allocation", {})
+            return payload
 
         if name == "analyze_portfolio":
-            return analyze_portfolio_tool(
+            if not work_state.get("summary"):
+                tickers_for_summary = [str(t).upper() for t in arguments.get("tickers", work_state.get("tickers", []))]
+                if tickers_for_summary:
+                    summary_payload = build_summary_tool(
+                        {"tickers": tickers_for_summary},
+                        tickr_data_manager=self.tickr_data_manager,
+                        tickr_summary_manager=self.tickr_summary_manager,
+                        financial_metrics=stocks_cfg.get("financials_metrics", []),
+                    )
+                    work_state["summary"] = summary_payload.get("summary", "")
+                    work_state["tickers"] = summary_payload.get("tickers", tickers_for_summary)
+            payload = analyze_portfolio_tool(
                 arguments,
                 tickr_data_manager=self.tickr_data_manager,
                 financial_metrics=stocks_cfg.get("financials_metrics", []),
             )
+            work_state["analysis"] = payload
+            return payload
 
         return {"error": f"Unknown tool: {name}"}
 
-    def _parse_final_result(self, text: str) -> AgentResult:
+    def _parse_final_result(self, text: str, *, work_state: dict[str, Any] | None = None) -> AgentResult:
         payload = _extract_json_payload(text)
+        work_state = work_state or {}
         tickers = [str(item).upper() for item in payload.get("tickers", []) if str(item).strip()]
+        if not tickers:
+            tickers = [str(item).upper() for item in work_state.get("tickers", []) if str(item).strip()]
         weights_raw = payload.get("weights", {})
         if not isinstance(weights_raw, dict):
             weights_raw = {}
+        if not weights_raw:
+            weights_raw = work_state.get("weights", {})
         weights = {str(k).upper(): float(v) for k, v in weights_raw.items()}
 
         allocation_raw = payload.get("allocation", {})
         if not isinstance(allocation_raw, dict):
             allocation_raw = {}
+        if not allocation_raw:
+            allocation_raw = work_state.get("allocation", {})
         allocation = {str(k).upper(): float(v) for k, v in allocation_raw.items()}
 
         suggestions = payload.get("suggestions", {})
         if not isinstance(suggestions, dict):
             suggestions = {}
+        suggestions = self._ensure_suggestions(suggestions, weights)
 
         analysis_text = str(payload.get("analysis_text", text)).strip()
+        if not analysis_text and work_state.get("analysis"):
+            analysis_text = "Portfolio analysis completed using tool outputs."
         data_by_ticker = self.tickr_data_manager.get_data_by_ticker(tickers)
         summary_text = self.tickr_summary_manager.build_or_get_summary(
             tickers=tickers,
@@ -327,6 +391,38 @@ class PortfolioAgent:
                 "excluded_tickers": payload.get("excluded_tickers", []),
             },
         )
+
+    @staticmethod
+    def _ensure_suggestions(suggestions: dict[str, Any], weights: dict[str, float]) -> dict[str, Any]:
+        add = suggestions.get("add", []) if isinstance(suggestions, dict) else []
+        remove = suggestions.get("remove", []) if isinstance(suggestions, dict) else []
+        reweight = suggestions.get("reweight", {}) if isinstance(suggestions, dict) else {}
+        if add or remove or reweight:
+            return {
+                "add": add if isinstance(add, list) else [],
+                "remove": remove if isinstance(remove, list) else [],
+                "reweight": reweight if isinstance(reweight, dict) else {},
+            }
+
+        if not weights:
+            return {}
+
+        max_ticker = max(weights, key=weights.get)
+        max_weight = float(weights[max_ticker])
+        if max_weight <= 0.65:
+            return {}
+
+        target_max = 0.55
+        excess = max_weight - target_max
+        others = [ticker for ticker in weights if ticker != max_ticker]
+        if not others:
+            return {}
+
+        distribute = excess / len(others)
+        fallback = {max_ticker: round(target_max, 4)}
+        for ticker in others:
+            fallback[ticker] = round(float(weights.get(ticker, 0.0)) + distribute, 4)
+        return {"add": [], "remove": [], "reweight": fallback}
 
     def _record_event(
         self,
