@@ -41,15 +41,36 @@ class SQLiteEventStore:
                 validation_errors TEXT,
                 action TEXT,
                 action_payload TEXT,
+                tool_name TEXT,
+                tool_arguments TEXT,
+                tool_result TEXT,
+                tool_call_id TEXT,
                 agent TEXT,
-                iteration INTEGER
+                iteration INTEGER,
+                agent_round INTEGER
             )
             """
+        )
+        self._ensure_columns(
+            {
+                "tool_name": "TEXT",
+                "tool_arguments": "TEXT",
+                "tool_result": "TEXT",
+                "tool_call_id": "TEXT",
+                "agent_round": "INTEGER",
+            }
         )
         self._connection.execute("CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)")
         self._connection.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
         self._connection.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp)")
         self._connection.commit()
+
+    def _ensure_columns(self, required: dict[str, str]) -> None:
+        rows = self._connection.execute("PRAGMA table_info(events)").fetchall()
+        existing = {str(row[1]) for row in rows}
+        for name, col_type in required.items():
+            if name not in existing:
+                self._connection.execute(f"ALTER TABLE events ADD COLUMN {name} {col_type}")
 
     @staticmethod
     def _dumps(value: Any) -> str | None:
@@ -70,8 +91,9 @@ class SQLiteEventStore:
                 event_id, schema_version, timestamp, session_id, run_id, event_type,
                 request_name, model, temperature, max_tokens, messages, raw_output,
                 status_code, latency_ms, token_usage, parsed_output, validation_errors,
-                action, action_payload, agent, iteration
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                action, action_payload, tool_name, tool_arguments, tool_result, tool_call_id,
+                agent, iteration, agent_round
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.event_id,
@@ -93,8 +115,13 @@ class SQLiteEventStore:
                 self._dumps(event.validation_errors),
                 event.action,
                 self._dumps(event.action_payload),
+                event.tool_name,
+                self._dumps(event.tool_arguments),
+                self._dumps(event.tool_result),
+                event.tool_call_id,
                 event.agent,
                 event.iteration,
+                event.agent_round,
             ),
         )
         self._connection.commit()
@@ -149,8 +176,13 @@ class SQLiteEventStore:
                     validation_errors=self._loads(row["validation_errors"]),
                     action=row["action"],
                     action_payload=self._loads(row["action_payload"]),
+                    tool_name=row["tool_name"],
+                    tool_arguments=self._loads(row["tool_arguments"]),
+                    tool_result=self._loads(row["tool_result"]),
+                    tool_call_id=row["tool_call_id"],
                     agent=row["agent"],
                     iteration=row["iteration"],
+                    agent_round=row["agent_round"],
                 )
             )
         return events

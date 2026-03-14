@@ -26,8 +26,13 @@ class EventRecord:
     validation_errors: list[str] | None = None
     action: str | None = None
     action_payload: dict[str, Any] | None = None
+    tool_name: str | None = None
+    tool_arguments: dict[str, Any] | None = None
+    tool_result: dict[str, Any] | None = None
+    tool_call_id: str | None = None
     agent: str | None = None
     iteration: int | None = None
+    agent_round: int | None = None
     schema_version: int = 1
     event_id: str = field(default_factory=lambda: str(uuid4()))
     timestamp: str = field(

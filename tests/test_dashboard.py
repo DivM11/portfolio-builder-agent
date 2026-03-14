@@ -1,191 +1,11 @@
-"""Unit tests for the dashboard module."""
+"""Unit tests for the single-agent dashboard module."""
+
+from __future__ import annotations
 
 import pandas as pd
 
-from src.dashboard import (
-    _apply_orchestrator_state,
-    _extract_message_text,
-    build_prompt,
-    create_openrouter_client,
-    fetch_stock_data,
-    generate_tickers,
-    limit_tickers,
-    parse_tickers,
-    run_dashboard,
-)
-from src.agents.base import AgentResult
-from src.agents.orchestrator import OrchestratorState
-
-
-class DummyAgg:
-    """Minimal stub for a Massive.com Agg object."""
-
-    def __init__(self, o, h, l, c, v, ts):  # noqa: E741
-        self.open = o
-        self.high = h
-        self.low = l
-        self.close = c
-        self.volume = v
-        self.timestamp = ts
-
-
-class DummyMetricField:
-    """Stub for a financials metric field with a .value attribute."""
-
-    def __init__(self, value):
-        self.value = value
-
-    def get(self, key, default=None):
-        if key == "value":
-            return self.value
-        return default
-
-
-class DummyIncomeStatement:
-    def __init__(self):
-        self.revenues = DummyMetricField(1_000_000)
-        self.cost_of_revenue = DummyMetricField(500_000)
-        self.operating_income_loss = DummyMetricField(300_000)
-        self.net_income_loss = DummyMetricField(200_000)
-
-
-class DummyCashFlowStatement:
-    def __init__(self):
-        self.depreciation_and_amortization = DummyMetricField(50_000)
-
-
-class DummyFinancials:
-    def __init__(self):
-        self.income_statement = DummyIncomeStatement()
-        self.cash_flow_statement = DummyCashFlowStatement()
-
-
-class DummyStockFinancial:
-    def __init__(self, report_date="2025-12-31"):
-        self.period_of_report_date = report_date
-        self.financials = DummyFinancials()
-
-
-class DummyVx:
-    """Stub for client.vx namespace."""
-
-    def list_stock_financials(self, **_kwargs):
-        return [DummyStockFinancial("2025-12-31"), DummyStockFinancial("2025-09-30")]
-
-
-class DummyMassiveClient:
-    """Minimal stub for massive.RESTClient."""
-
-    def __init__(self):
-        self.vx = DummyVx()
-
-    def list_aggs(self, **_kwargs):
-        return [
-            DummyAgg(100, 105, 99, 102, 1000, 1700000000000),
-            DummyAgg(102, 106, 101, 104, 1200, 1700086400000),
-            DummyAgg(104, 108, 103, 107, 1100, 1700172800000),
-        ]
-
-
-class DummyMessage:
-    def __init__(self, content: str) -> None:
-        self.content = content
-
-
-class DummyChoice:
-    def __init__(self, content: str) -> None:
-        self.message = DummyMessage(content)
-
-
-class DummyResponse:
-    def __init__(self, content: str) -> None:
-        self.choices = [DummyChoice(content)]
-
-
-class DummyChatCompletions:
-    def __init__(self, contents) -> None:
-        self._contents = list(contents) if isinstance(contents, list) else [contents]
-
-    def create(self, **_kwargs):
-        if not self._contents:
-            return DummyResponse("")
-        return DummyResponse(self._contents.pop(0))
-
-
-class DummyChat:
-    def __init__(self, content) -> None:
-        self.completions = DummyChatCompletions(content)
-
-
-class DummyClient:
-    """Minimal stub for OpenAI-compatible client."""
-
-    def __init__(self, text) -> None:
-        self.chat = DummyChat(text)
-
-
-class DummySidebar:
-    def __init__(self) -> None:
-        self.session_state: dict | None = None
-        self.header_text = None
-        self.subheader_texts: list[str] = []
-        self.multiselect_args = None
-        self.number_input_args = None
-        self.selectbox_calls: list[tuple] = []
-        self.error_msg = None
-        self.write_args = None
-        self.warning_msg = None
-
-    def header(self, text: str) -> None:
-        self.header_text = text
-
-    def subheader(self, text: str) -> None:
-        self.subheader_texts.append(text)
-
-    def number_input(
-        self,
-        label: str,
-        min_value: float,
-        step: float,
-        key: str | None = None,
-    ) -> float:
-        self.number_input_args = (label, min_value, step, key)
-        if key and self.session_state is not None:
-            self.session_state.setdefault(key, min_value)
-            return self.session_state[key]
-        return min_value
-
-    def selectbox(
-        self,
-        label: str,
-        options: list,
-        index: int = 0,
-        key: str | None = None,
-    ) -> str:
-        self.selectbox_calls.append((label, options, index, key))
-        if key and self.session_state is not None:
-            if key not in self.session_state:
-                self.session_state[key] = options[index] if options else ""
-            return self.session_state[key]
-        return options[index] if options else ""
-
-    def multiselect(self, label: str, options, default=None, key: str | None = None):
-        self.multiselect_args = (label, options, default, key)
-        selection = default or []
-        if key and self.session_state is not None:
-            if key not in self.session_state:
-                self.session_state[key] = selection
-            return self.session_state[key]
-        return selection
-
-    def write(self, label: str, value) -> None:
-        self.write_args = (label, value)
-
-    def error(self, msg: str) -> None:
-        self.error_msg = msg
-
-    def warning(self, msg: str) -> None:
-        self.warning_msg = msg
+from src.agent_models import AgentResult
+from src.dashboard import run_dashboard
 
 
 class DummyContainer:
@@ -196,189 +16,143 @@ class DummyContainer:
         return False
 
 
-class DummyRerunException(Exception):
-    """Raised by DummyStreamlit.rerun() to mimic Streamlit's rerun behaviour."""
-
-
 class DummyPlaceholder:
-    def __init__(self, markdowns=None, progress_updates=None):
-        self._markdowns = markdowns
+    def __init__(self, progress_updates):
         self._progress_updates = progress_updates
 
-    def markdown(self, text: str) -> None:
-        if self._markdowns is not None:
-            self._markdowns.append(text)
-
     def progress(self, value: float, text: str | None = None):
-        if self._progress_updates is not None:
-            self._progress_updates.append((value, text))
+        self._progress_updates.append((value, text))
         return self
 
-    def empty(self) -> None:
+    def empty(self):
         return None
 
 
+class DummySidebar:
+    def __init__(self) -> None:
+        self.session_state = None
+        self.error_msg = None
+        self.selectbox_calls = []
+        self.write_args = None
+
+    def header(self, _text: str) -> None:
+        return None
+
+    def number_input(self, _label: str, min_value: float, step: float, key: str | None = None):
+        if key and self.session_state is not None:
+            self.session_state.setdefault(key, min_value)
+            return self.session_state[key]
+        return min_value
+
+    def selectbox(self, label: str, options: list[str], index: int = 0, key: str | None = None):
+        self.selectbox_calls.append((label, options, index, key))
+        if key and self.session_state is not None:
+            self.session_state.setdefault(key, options[index])
+            return self.session_state[key]
+        return options[index]
+
+    def error(self, msg: str) -> None:
+        self.error_msg = msg
+
+    def write(self, label: str, value) -> None:
+        self.write_args = (label, value)
+
+
 class DummyStreamlit:
-    def __init__(
-        self,
-        sidebar: DummySidebar,
-        chat_input_value: str | None,
-        button_values: dict[str, bool] | None = None,
-    ) -> None:
+    def __init__(self, sidebar: DummySidebar, prompt: str | None):
         self.sidebar = sidebar
         self.session_state = {}
         self.sidebar.session_state = self.session_state
-        self._chat_input_value = chat_input_value
-        self.title_text = None
-        self.subheaders = []
-        self.writes = []
-        self.dataframes = []
-        self.dataframe_kwargs = []
-        self.plots = []
-        self.plot_kwargs = []
-        self.infos = []
-        self.download_buttons = []
-        self.captions = []
-        self.chat_messages = []
-        self.markdowns = []
+        self._prompt = prompt
+        self.markdowns: list[str] = []
+        self.infos: list[str] = []
+        self.progress_updates: list[tuple[float, str | None]] = []
         self.tabs_created = []
-        self.warnings = []
-        self.progress_updates = []
-        self.placeholder_markdowns = []
-        self.button_values = button_values or {}
+        self.plot_kwargs = []
+        self.dataframe_kwargs = []
 
-    def title(self, text: str) -> None:
-        self.title_text = text
-
-    def subheader(self, text: str) -> None:
-        self.subheaders.append(text)
-
-    def write(self, text: str) -> None:
-        self.writes.append(text)
-
-    def dataframe(self, df: pd.DataFrame, **kwargs) -> None:
-        self.dataframes.append(df)
-        self.dataframe_kwargs.append(kwargs)
-
-    def pyplot(self, fig) -> None:
-        self.plots.append(fig)
-
-    def plotly_chart(self, fig, **_kwargs) -> None:
-        self.plots.append(fig)
-        self.plot_kwargs.append(_kwargs)
-
-    def info(self, text: str) -> None:
-        self.infos.append(text)
-
-    def warning(self, text: str) -> None:
-        self.warnings.append(text)
-
-    def download_button(self, label: str, data, file_name: str, mime: str) -> None:
-        self.download_buttons.append((label, file_name, mime, data))
-
-    def caption(self, text: str) -> None:
-        self.captions.append(text)
-
-    def columns(self, _spec, _gap: str | None = None):
-        return [DummyContainer(), DummyContainer()]
+    def title(self, _text: str) -> None:
+        return None
 
     def tabs(self, labels):
         self.tabs_created = labels
         return [DummyContainer() for _ in labels]
 
-    def progress(self, value: float, text: str | None = None):
-        self.progress_updates.append((value, text))
-        return DummyPlaceholder(progress_updates=self.progress_updates)
+    def caption(self, _text: str) -> None:
+        return None
 
-    def empty(self):
-        return DummyPlaceholder(markdowns=self.placeholder_markdowns)
+    def columns(self, count):
+        return [DummyContainer() for _ in range(count)]
+
+    def button(self, _label: str, key: str | None = None):
+        return False
 
     def chat_input(self, _placeholder: str):
-        return self._chat_input_value
+        return self._prompt
 
-    def chat_message(self, role: str, avatar: str | None = None):
-        self.chat_messages.append(role)
+    def chat_message(self, _role: str, avatar: str | None = None):
         return DummyContainer()
 
     def markdown(self, text: str) -> None:
         self.markdowns.append(text)
 
-    def button(self, _label: str, key: str | None = None) -> bool:
-        return bool(self.button_values.get(key or _label, False))
+    def progress(self, value: float, text: str | None = None):
+        self.progress_updates.append((value, text))
+        return DummyPlaceholder(self.progress_updates)
+
+    def info(self, text: str) -> None:
+        self.infos.append(text)
+
+    def plotly_chart(self, _fig, **kwargs):
+        self.plot_kwargs.append(kwargs)
+
+    def dataframe(self, _df, **kwargs):
+        self.dataframe_kwargs.append(kwargs)
+
+    def download_button(self, **_kwargs):
+        return None
+
+    def subheader(self, _text: str):
+        return None
+
+    def write(self, _text: str):
+        return None
 
     def rerun(self):
-        raise DummyRerunException("rerun")
+        return None
 
 
-def test_build_prompt():
-    prompt = build_prompt("Hello {user_input}", "world")
-    assert prompt == "Hello world"
+class DummyAgent:
+    def __init__(self, *_args, **_kwargs):
+        self.calls = []
+
+    def run(self, **kwargs):
+        self.calls.append(("run", kwargs))
+        return AgentResult(
+            tickers=["AAPL", "MSFT"],
+            data_by_ticker={
+                "AAPL": {
+                    "history": pd.DataFrame({"Close": [1.0, 1.1]}),
+                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
+                },
+                "MSFT": {
+                    "history": pd.DataFrame({"Close": [1.0, 1.05]}),
+                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
+                },
+            },
+            weights={"AAPL": 0.5, "MSFT": 0.5},
+            allocation={"AAPL": 500.0, "MSFT": 500.0},
+            analysis_text="analysis",
+            suggestions={},
+        )
+
+    def refine(self, **kwargs):
+        self.calls.append(("refine", kwargs))
+        return self.run(**kwargs)
 
 
-def test_build_prompt_with_extra_kwargs():
-    prompt = build_prompt("Pick {num_tickers} for {user_input}", "tech", num_tickers=10)
-    assert prompt == "Pick 10 for tech"
-
-
-def test_parse_tickers():
-    tickers = parse_tickers("aapl, msft,  goog", delimiter=",")
-    assert tickers == ["AAPL", "MSFT", "GOOG"]
-
-
-def test_generate_tickers():
-    client = DummyClient("AAPL, MSFT")
-    tickers, raw = generate_tickers(
-        client=client,
-        prompt="test",
-        system_prompt="system",
-        model="model",
-        max_tokens=10,
-        temperature=0.1,
-        delimiter=",")
-    assert tickers == ["AAPL", "MSFT"]
-    assert raw == "AAPL, MSFT"
-
-
-def test_fetch_stock_data():
-    client = DummyMassiveClient()
-
-    data = fetch_stock_data("AAPL", history_period="1y", financials_period="quarterly", massive_client=client)
-
-    assert "history" in data
-    assert "financials" in data
-    assert not data["history"].empty
-    assert hasattr(data["financials"], "empty")
-
-
-def test_limit_tickers():
-    tickers = ["A", "B", "C"]
-    assert limit_tickers(tickers, 2) == ["A", "B"]
-    assert limit_tickers(tickers, 0) == []
-
-
-def test_extract_message_text_dict_response():
-    response = {"choices": [{"message": {"content": "AAPL, MSFT"}}]}
-    assert _extract_message_text(response) == "AAPL, MSFT"
-
-
-def test_create_openrouter_client(monkeypatch):
-    class DummyOpenAI:
-        def __init__(self, api_key: str, base_url: str, default_headers: dict):
-            self.api_key = api_key
-            self.base_url = base_url
-            self.default_headers = default_headers
-
-    monkeypatch.setattr("src.dashboard.OpenAI", DummyOpenAI)
-
-    client = create_openrouter_client(
-        api_key="key",
-        base_url="https://example.com",
-        headers={"X-Test": "1"},
-    )
-
-    assert client.api_key == "key"
-    assert client.base_url == "https://example.com"
-    assert client.default_headers == {"X-Test": "1"}
+class DummyClient:
+    pass
 
 
 def _base_config(api_key: str | None) -> dict:
@@ -386,44 +160,31 @@ def _base_config(api_key: str | None) -> dict:
         "app": {"title": "Title", "layout": "wide"},
         "ui": {
             "sidebar_header": "Header",
-            "model_selection_header": "Model Selection",
             "portfolio_size_label": "Portfolio Size ($)",
             "chat_placeholder": "Chat",
             "chat_intro": "Intro",
             "chat_tab_label": "Chat",
-            "ticker_reply_template": "Suggested tickers: {tickers}",
-            "ticker_validation_error": "No valid tickers found.",
-            "weights_fallback_message": "Could not parse weights. Using equal weights.",
-            "weights_tickers_dropped": "Note: {dropped} received zero weight.",
-            "fetch_progress_start": "Fetching ticker data...",
-            "fetch_progress_ticker": "Fetching {ticker} ({current}/{total})",
-            "history_fetch_warning": "No historical price data found for: {tickers}. These were skipped.",
-            "history_fetch_warning_rate_limited": "Rate-limited while fetching historical price data for: {tickers}. Please retry shortly.",
-            "history_fetch_warning_not_found": "Ticker not found for historical price data: {tickers}. These were skipped.",
-            "history_fetch_warning_empty_data": "No historical price data found for: {tickers}. These were skipped.",
-            "history_fetch_warning_unexpected_error": "Unexpected error while fetching historical price data for: {tickers}. These were skipped.",
-            "history_fetch_all_failed": "Could not fetch historical price data for any suggested ticker. Please try a different request.",
-            "history_empty_message": "History empty",
-            "portfolio_empty_message": "Portfolio empty",
-            "post_analysis_nudge": "Check other tabs",
-            "portfolio_tab_link": "Open the **Portfolio** tab above to review allocation and performance.",
-            "suggested_label": "Suggested",
-            "ticker_header_template": "Data for {ticker}",
-            "section_history": "History",
-            "section_financials": "Financials",
-            "download_prompt": "Download",
-            "download_history_label": "History CSV",
-            "download_financials_label": "Financials CSV",
-            "missing_api_key": "Missing",
-            "max_tickers_warning": "Limiting to {max_tickers}",
-            "history_ticker_label": "History tickers",
             "history_tab_label": "History",
             "portfolio_tab_label": "Portfolio",
+            "starter_prompts_label": "Try one",
+            "starter_prompts": ["Prompt A", "Prompt B"],
+            "ticker_reply_template": "Suggested tickers: {tickers}",
+            "post_analysis_nudge": "Check other tabs",
+            "suggested_label": "Suggested",
+            "download_prompt": "Download",
+            "download_history_label": "History CSV",
+            "history_empty_message": "History empty",
+            "portfolio_empty_message": "Portfolio empty",
             "portfolio_output_label": "Recommended Portfolio",
             "portfolio_stats_label": "Portfolio Stats",
             "portfolio_returns_label": "Portfolio Returns",
             "portfolio_financials_label": "Portfolio Financials",
-            "portfolio_stats_template": "Min {min} Max {max} Median {median} Current {current} Return {return_1y}",
+            "missing_api_key": "Missing",
+            "missing_massive_key": "Missing Massive",
+            "fetch_progress_start": "Fetching ticker data...",
+            "fetch_progress_ticker": "Fetching {ticker} ({current}/{total})",
+            "evaluator_accept_button": "Accept Changes",
+            "evaluator_reject_button": "Keep Current Portfolio",
         },
         "dashboard": {
             "default_user_input": "default",
@@ -437,41 +198,7 @@ def _base_config(api_key: str | None) -> dict:
                 "http_referer": "http://localhost",
                 "app_title": "App",
             },
-            "default_models": {
-                "ticker": "model",
-                "weights": "model",
-                "analysis": "model",
-                "evaluator": "model",
-            },
-            "model_choices": [
-                "model",
-                "anthropic/claude-3.5-haiku",
-                "google/gemini-flash-1.5",
-            ],
-            "model_labels": {
-                "ticker": "Stock Picker",
-                "weights": "Weight Allocator",
-                "analysis": "Portfolio Analyst",
-                "evaluator": "Portfolio Reviewer",
-            },
-            "outputs": {
-                "ticker_max_tokens": 5,
-                "weights_max_tokens": 5,
-                "analysis_max_tokens": 500,
-            },
-            "temperatures": {
-                "ticker": 0.1,
-                "weights": 0.1,
-                "analysis": 0.1,
-            },
-            "prompts": {
-                "ticker_system": "system",
-                "ticker_template": "Prompt {user_input}",
-                "weights_system": "weights",
-                "weights_template": "Weights {summary}",
-                "analysis_system": "analysis",
-                "analysis_template": "Summary {summary} Weights {weights}",
-            },
+            "model_choices": ["anthropic/claude-sonnet-4.5", "google/gemini-2.5-flash"],
         },
         "stocks": {
             "history_period": "1y",
@@ -479,13 +206,15 @@ def _base_config(api_key: str | None) -> dict:
             "max_tickers": 5,
             "financials_metrics": ["Total Revenue"],
         },
-        "massive": {"api": {"api_key": "test-massive-key", "key_env_var": "MASSIVE_API_KEY"}},
+        "massive": {"api": {"api_key": "massive-key"}},
+        "event_store": {"enabled": False, "schema_version": 2},
+        "agent": {"model": "anthropic/claude-sonnet-4.5"},
     }
 
 
-def test_run_dashboard_missing_api_key(monkeypatch):
+def test_run_dashboard_missing_openrouter_api_key(monkeypatch):
     sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value=None)
+    st = DummyStreamlit(sidebar, prompt=None)
     monkeypatch.setattr("src.dashboard.st", st)
 
     run_dashboard(_base_config(api_key=None))
@@ -493,549 +222,46 @@ def test_run_dashboard_missing_api_key(monkeypatch):
     assert sidebar.error_msg == "Missing"
 
 
-def test_run_dashboard_no_prompt(monkeypatch):
+def test_run_dashboard_missing_massive_api_key(monkeypatch):
     sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value=None)
+    st = DummyStreamlit(sidebar, prompt=None)
     monkeypatch.setattr("src.dashboard.st", st)
 
-    def should_not_be_called(*_args, **_kwargs):
-        raise AssertionError("unexpected call")
-
-    monkeypatch.setattr("src.dashboard.create_openrouter_client", should_not_be_called)
-
-    run_dashboard(_base_config(api_key="key"))
-
-    assert sidebar.error_msg is None
-
-
-def test_run_dashboard_prompt_flow(monkeypatch):
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt")
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(
-            [
-                "AAPL, MSFT",
-                '{"weights": {"AAPL": 0.6, "MSFT": 0.4}}',
-                "analysis",
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
-    monkeypatch.setattr(
-        "src.dashboard.fetch_stock_data",
-        lambda *_args, **_kwargs: {
-            "history": pd.DataFrame({"Close": [1.0]}),
-            "financials": pd.DataFrame({"metric": ["rev"]}),
-        },
-    )
-
-    run_dashboard(_base_config(api_key="key"))
-
-    assert sidebar.write_args == ("Suggested", ["AAPL", "MSFT"])
-    assert len(st.tabs_created) == 3
-    assert len(st.dataframes) == 1
-    assert len(st.download_buttons) == 2
-    assert len(st.plots) == 3
-    assert all(kwargs.get("width") == "stretch" for kwargs in st.plot_kwargs)
-    assert all("use_container_width" not in kwargs for kwargs in st.plot_kwargs)
-    assert all(kwargs.get("width") == "stretch" for kwargs in st.dataframe_kwargs)
-    assert all("use_container_width" not in kwargs for kwargs in st.dataframe_kwargs)
-    assert st.progress_updates
-    assert "Suggested tickers: AAPL, MSFT" in st.markdowns
-    assert "analysis" in st.markdowns
-    assert "Check other tabs" in st.markdowns
-    assert "Open the **Portfolio** tab above to review allocation and performance." in st.markdowns
-
-
-def test_run_dashboard_invalid_ticker_output(monkeypatch, caplog):
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt")
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(["??? , ###"]),
-    )
-
-    run_dashboard(_base_config(api_key="key"))
-
-    assert "No valid tickers found." in st.markdowns
-    assert "Raw model output from OpenRouter: ??? , ###" in caplog.text
-
-
-def test_run_dashboard_weights_normalized(monkeypatch):
-    """Weights that don't sum to 1.0 are normalized, not rejected."""
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt")
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(
-            [
-                "AAPL, MSFT",
-                '{"weights": {"AAPL": 0.9, "MSFT": 0.5}}',
-                "analysis",
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
-    monkeypatch.setattr(
-        "src.dashboard.fetch_stock_data",
-        lambda *_args, **_kwargs: {
-            "history": pd.DataFrame({"Close": [1.0]}),
-            "financials": pd.DataFrame({"metric": ["rev"]}),
-        },
-    )
-
-    run_dashboard(_base_config(api_key="key"))
-
-    # Weights are normalized, not rejected — no sidebar warning
-    assert sidebar.warning_msg is None
-    # Analysis should still complete
-    assert "analysis" in st.markdowns
-
-
-def test_run_dashboard_weights_dropped_tickers(monkeypatch):
-    """When LLM omits tickers from weights, user is informed."""
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt")
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(
-            [
-                "AAPL, MSFT",
-                '{"weights": {"AAPL": 1.0}}',
-                "analysis",
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
-    monkeypatch.setattr(
-        "src.dashboard.fetch_stock_data",
-        lambda *_args, **_kwargs: {
-            "history": pd.DataFrame({"Close": [1.0]}),
-            "financials": pd.DataFrame({"metric": ["rev"]}),
-        },
-    )
-
-    run_dashboard(_base_config(api_key="key"))
-
-    assert any("MSFT" in msg and "zero weight" in msg for msg in st.markdowns)
-    assert "analysis" in st.markdowns
-
-
-def test_run_dashboard_unparseable_weights_fallback(monkeypatch):
-    """When weight parsing fails completely, equal weights are used."""
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt")
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(
-            [
-                "AAPL, MSFT",
-                "not valid json at all",
-                "analysis",
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
-    monkeypatch.setattr(
-        "src.dashboard.fetch_stock_data",
-        lambda *_args, **_kwargs: {
-            "history": pd.DataFrame({"Close": [1.0]}),
-            "financials": pd.DataFrame({"metric": ["rev"]}),
-        },
-    )
-
-    run_dashboard(_base_config(api_key="key"))
-
-    assert "Could not parse weights. Using equal weights." in st.markdowns
-    assert "analysis" in st.markdowns
-
-
-def test_run_dashboard_tabs_show_empty_states_without_tickers(monkeypatch):
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value=None)
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    run_dashboard(_base_config(api_key="key"))
-
-    assert "History empty" in st.infos
-    assert "Portfolio empty" in st.infos
-
-
-def test_run_dashboard_warns_for_missing_history(monkeypatch):
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt")
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(
-            [
-                "AAPL, MSFT",
-                '{"weights": {"AAPL": 1.0}}',
-                "analysis",
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
-
-    def _fetch(*args, **_kwargs):
-        ticker = args[0]
-        if ticker == "MSFT":
-            return {
-                "history": pd.DataFrame(),
-                "financials": pd.DataFrame({"metric": ["rev"]}),
-            }
-        return {
-            "history": pd.DataFrame({"Close": [1.0]}),
-            "financials": pd.DataFrame({"metric": ["rev"]}),
-        }
-
-    monkeypatch.setattr("src.dashboard.fetch_stock_data", _fetch)
-
-    run_dashboard(_base_config(api_key="key"))
-
-    assert any("MSFT" in warning for warning in st.warnings)
-    assert any("MSFT" in message for message in st.markdowns)
-    assert sidebar.write_args == ("Suggested", ["AAPL"])
-
-
-def test_run_dashboard_all_history_fetches_fail(monkeypatch):
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt")
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(["AAPL, MSFT"]),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.fetch_stock_data",
-        lambda *_args, **_kwargs: {
-            "history": pd.DataFrame(),
-            "financials": pd.DataFrame(),
-        },
-    )
-
-    run_dashboard(_base_config(api_key="key"))
-
-    assert "Could not fetch historical price data for any suggested ticker. Please try a different request." in st.markdowns
-    assert sidebar.write_args is None
-
-
-def test_run_dashboard_warns_rate_limited(monkeypatch):
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt")
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(["AAPL"]),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.fetch_stock_data",
-        lambda *_args, **_kwargs: {
-            "history": pd.DataFrame(),
-            "financials": pd.DataFrame(),
-            "history_status": "rate_limited",
-        },
-    )
-
-    run_dashboard(_base_config(api_key="key"))
-
-    assert any("Rate-limited" in warning for warning in st.warnings)
-    assert any("Rate-limited" in message for message in st.markdowns)
-
-
-def test_apply_orchestrator_state_refreshes_selected_recommended_and_excluded(monkeypatch):
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value=None)
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    st.session_state["_financial_metrics"] = []
-
-    state = OrchestratorState(
-        user_input="prompt",
-        portfolio_size=1000.0,
-        creator_result=AgentResult(
-            tickers=["AAPL", "NVDA"],
-            data_by_ticker={
-                "AAPL": {"history": pd.DataFrame({"Close": [1.0]}), "financials": pd.DataFrame()},
-                "NVDA": {"history": pd.DataFrame({"Close": [2.0]}), "financials": pd.DataFrame()},
-            },
-            weights={"AAPL": 0.5, "NVDA": 0.5},
-            allocation={"AAPL": 500.0, "NVDA": 500.0},
-            metadata={"recommended_tickers": ["AAPL", "TSLA", "NVDA"], "excluded_tickers": ["TSLA"]},
-        ),
-        evaluator_result=AgentResult(analysis_text="analysis"),
-        pending_suggestions={"add": [], "remove": [], "reweight": {}},
-        selected_tickers=["AAPL", "NVDA"],
-        recommended_tickers=["AAPL", "TSLA", "NVDA"],
-        excluded_tickers=["TSLA"],
-    )
-
-    _apply_orchestrator_state(state)
-
-    assert st.session_state["tickers"] == ["AAPL", "NVDA"]
-    assert st.session_state["recommended_tickers"] == ["AAPL", "TSLA", "NVDA"]
-    assert st.session_state["excluded_tickers"] == ["TSLA"]
-    assert set(st.session_state["data_by_ticker"].keys()) == {"AAPL", "NVDA"}
-
-
-def test_run_dashboard_accept_changes_updates_selected_and_suggested(monkeypatch):
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt", button_values={"accept_changes": True})
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(
-            [
-                "AAPL, TSLA",
-                '{"weights": {"AAPL": 0.5, "TSLA": 0.5}}',
-                'analysis {"changes": {"add": ["NVDA"], "remove": ["TSLA"], "reweight": {}}}',
-                "AAPL, MSFT",
-                '{"weights": {"AAPL": 0.5, "NVDA": 0.5}}',
-                'updated {"changes": {"add": [], "remove": [], "reweight": {}}}',
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
-    monkeypatch.setattr(
-        "src.dashboard.fetch_stock_data",
-        lambda *_args, **_kwargs: {
-            "history": pd.DataFrame({"Close": [1.0, 1.1]}),
-            "financials": pd.DataFrame({"metric": ["rev"]}),
-        },
-    )
-
-    try:
-        run_dashboard(_base_config(api_key="key"))
-    except DummyRerunException:
-        pass
-
-    assert "NVDA" in st.session_state["tickers"]
-    assert "TSLA" not in st.session_state["tickers"]
-    assert "TSLA" in st.session_state["excluded_tickers"]
-    assert st.session_state["recommended_tickers"] == ["AAPL", "MSFT"]
-    # Updated analysis stored in messages (not rendered inline)
-    assert any("updated" in m["content"] for m in st.session_state["messages"] if m["role"] == "assistant")
-    assert st.session_state["agent_iteration"] == 2
-
-
-def test_run_dashboard_reject_changes_triggers_rerun(monkeypatch):
-    """Clicking 'Keep Current Portfolio' stores the rejection message and reruns."""
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt", button_values={"reject_changes": True})
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(
-            [
-                "AAPL, TSLA",
-                '{"weights": {"AAPL": 0.5, "TSLA": 0.5}}',
-                'analysis {"changes": {"add": ["NVDA"], "remove": ["TSLA"], "reweight": {}}}',
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
-    monkeypatch.setattr(
-        "src.dashboard.fetch_stock_data",
-        lambda *_args, **_kwargs: {
-            "history": pd.DataFrame({"Close": [1.0, 1.1]}),
-            "financials": pd.DataFrame({"metric": ["rev"]}),
-        },
-    )
-
-    try:
-        run_dashboard(_base_config(api_key="key"))
-    except DummyRerunException:
-        pass
-
-    assert any(
-        "Keeping current portfolio" in m["content"]
-        for m in st.session_state["messages"]
-        if m["role"] == "assistant"
-    )
-    assert st.session_state["orchestrator_state"].status == "COMPLETE"
-
-
-def test_run_dashboard_empty_analysis_text_not_pushed(monkeypatch):
-    """When the evaluator returns empty analysis (reasoning model), no empty
-    chat bubble is rendered, and the 'no changes' message still appears."""
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt")
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(
-            [
-                "AAPL, MSFT",
-                '{"weights": {"AAPL": 0.6, "MSFT": 0.4}}',
-                "",  # empty analysis from reasoning model
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
-    monkeypatch.setattr(
-        "src.dashboard.fetch_stock_data",
-        lambda *_args, **_kwargs: {
-            "history": pd.DataFrame({"Close": [1.0]}),
-            "financials": pd.DataFrame({"metric": ["rev"]}),
-        },
-    )
-
-    run_dashboard(_base_config(api_key="key"))
-
-    # Empty analysis_text must NOT appear as a chat message
-    assert "" not in [m for m in st.markdowns if m == ""]
-    # The no-changes fallback message should appear
-    assert "No further portfolio changes suggested." in st.markdowns
-    assert "Check other tabs" in st.markdowns
-
-
-def test_run_dashboard_shows_model_selectors(monkeypatch):
-    """Model selection dropdowns appear in the sidebar for each task."""
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value=None)
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    run_dashboard(_base_config(api_key="key"))
-
-    labels = [call[0] for call in sidebar.selectbox_calls]
-    assert "Stock Picker" in labels
-    assert "Weight Allocator" in labels
-    assert "Portfolio Analyst" in labels
-    assert "Portfolio Reviewer" in labels
-    assert len(sidebar.selectbox_calls) == 4
-    # Each selectbox should offer the configured choices
-    for _label, options, _index, _key in sidebar.selectbox_calls:
-        assert options == ["model", "anthropic/claude-3.5-haiku", "google/gemini-flash-1.5"]
-
-
-def test_run_dashboard_selected_model_overrides_config(monkeypatch):
-    """When user picks a different model in the sidebar, that model is used."""
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value="prompt")
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    # Pre-set session state so the selectbox returns the override
-    st.session_state["model_ticker"] = "google/gemini-flash-1.5"
-    st.session_state["model_weights"] = "google/gemini-flash-1.5"
-
-    captured_models = []
-    original_create = None
-
-    monkeypatch.setattr(
-        "src.dashboard.create_openrouter_client",
-        lambda **_kwargs: DummyClient(
-            [
-                "AAPL, MSFT",
-                '{"weights": {"AAPL": 0.6, "MSFT": 0.4}}',
-                "analysis",
-            ]
-        ),
-    )
-    monkeypatch.setattr(
-        "src.dashboard.create_massive_client",
-        lambda **_kwargs: DummyMassiveClient(),
-    )
-    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
-    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "portfolio")
-    monkeypatch.setattr(
-        "src.dashboard.fetch_stock_data",
-        lambda *_args, **_kwargs: {
-            "history": pd.DataFrame({"Close": [1.0]}),
-            "financials": pd.DataFrame({"metric": ["rev"]}),
-        },
-    )
-
-    run_dashboard(_base_config(api_key="key"))
-
-    # The config models should have been overridden by sidebar selections
-    assert st.session_state.get("model_ticker") == "google/gemini-flash-1.5"
-    assert st.session_state.get("model_weights") == "google/gemini-flash-1.5"
-
-
-def test_run_dashboard_no_model_choices_skips_selectors(monkeypatch):
-    """When model_choices is absent, no selectbox is rendered."""
-    sidebar = DummySidebar()
-    st = DummyStreamlit(sidebar, chat_input_value=None)
-    monkeypatch.setattr("src.dashboard.st", st)
-
-    cfg = _base_config(api_key="key")
-    cfg["openrouter"].pop("model_choices", None)
-    cfg["openrouter"].pop("model_labels", None)
-
+    cfg = _base_config(api_key="ok")
+    cfg["massive"]["api"].pop("api_key", None)
     run_dashboard(cfg)
 
-    assert len(sidebar.selectbox_calls) == 0
+    assert sidebar.error_msg == "Missing Massive"
+
+
+def test_run_dashboard_renders_model_selector(monkeypatch):
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, prompt=None)
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    assert len(sidebar.selectbox_calls) == 1
+    assert sidebar.selectbox_calls[0][0] == "Agent Model"
+
+
+def test_run_dashboard_prompt_uses_single_agent(monkeypatch):
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgent)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    assert sidebar.write_args == ("Suggested", ["AAPL", "MSFT"])
+    assert any("Suggested tickers: AAPL, MSFT" in message for message in st.markdowns)
+    assert any("analysis" in message for message in st.markdowns)
+    assert st.progress_updates

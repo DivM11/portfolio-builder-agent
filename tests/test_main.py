@@ -8,10 +8,12 @@ from pathlib import Path
 def test_main_runs(monkeypatch):
     class DummyStreamlit:
         def __init__(self) -> None:
+            self.page_title = None
             self.layout = None
             self.page_icon = None
 
-        def set_page_config(self, layout: str, page_icon: str | None = None) -> None:
+        def set_page_config(self, page_title: str, layout: str, page_icon: str | None = None) -> None:
+            self.page_title = page_title
             self.layout = layout
             self.page_icon = page_icon
 
@@ -20,7 +22,7 @@ def test_main_runs(monkeypatch):
     class DummyConfigModule:
         @staticmethod
         def load_config():
-            return {"app": {"layout": "wide"}}
+            return {"app": {"title": "Portfolio Builder Agent", "layout": "wide"}}
 
     class DummyDashboardModule:
         called_with = None
@@ -44,7 +46,8 @@ def test_main_runs(monkeypatch):
     main_path = Path(__file__).resolve().parents[1] / "main.py"
     runpy.run_path(str(main_path), run_name="__main__")
 
+    assert dummy_st.page_title == "Portfolio Builder Agent"
     assert dummy_st.layout == "wide"
     assert dummy_st.page_icon == "img/finance_icon.png"
     assert DummyLoggingModule.called_with == {}
-    assert DummyDashboardModule.called_with == {"app": {"layout": "wide"}}
+    assert DummyDashboardModule.called_with == {"app": {"title": "Portfolio Builder Agent", "layout": "wide"}}

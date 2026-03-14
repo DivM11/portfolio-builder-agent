@@ -11,7 +11,7 @@ logging:
 event_store:
   enabled: true
   backend: "sqlite"
-  schema_version: 1
+  schema_version: 2
   sqlite:
     db_path: "data/events.db"
   postgres:
@@ -79,6 +79,28 @@ ui:
   portfolio_returns_label: "Portfolio Returns (1Y)"
   portfolio_financials_label: "Portfolio Financials"
   portfolio_stats_template: "Min {min:.2f} | Max {max:.2f} | Median {median:.2f} | Current {current:.2f} | 1Y Return {return_1y:.2%}"
+
+agent:
+  model: "anthropic/claude-sonnet-4.5"
+  max_tokens: 4096
+  temperature: 0.2
+  max_tool_rounds: 10
+  max_iterations: 3
+  system_prompt: |
+    You are a portfolio building agent. Build personalized US equity portfolios using tools.
+    Workflow:
+    1. Understand user intent.
+    2. Call generate_tickers.
+    3. Call fetch_ticker_data.
+    4. Call build_summary.
+    5. Call allocate_weights.
+    6. Call analyze_portfolio.
+    7. If results do not satisfy user criteria, adjust and repeat.
+    8. Return strict JSON with keys tickers, weights, allocation, analysis_text, suggestions.
+    Rules:
+    - Maximum {max_tickers} tickers.
+    - Weights should sum to 1.0.
+    - Excluded tickers: {excluded_tickers}
 
 openrouter:
   api:
