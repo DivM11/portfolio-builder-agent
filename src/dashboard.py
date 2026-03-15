@@ -122,7 +122,7 @@ def _render_current_portfolio_sections(container, ui: Dict[str, Any]) -> None:
                     "Weight": st.column_config.NumberColumn(
                         "Weight (%)",
                         help="Weight of the ticker in the portfolio",
-                        format="%.2f %%" # Use '%%' to display a literal '%' sign
+                        format="percent"
                     )},
                  width="stretch", hide_index=True)
 
