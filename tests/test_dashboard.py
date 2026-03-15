@@ -70,8 +70,12 @@ class DummyStreamlit:
         self.tabs_created = []
         self.plot_kwargs = []
         self.dataframe_kwargs = []
+        self.dataframe_inputs = []
         self.button_calls = []
         self.streamed_messages: list[str] = []
+        self.subheaders: list[str] = []
+        self.writes: list[str] = []
+        self.expander_calls: list[tuple[str, bool]] = []
 
     def title(self, _text: str) -> None:
         return None
@@ -117,16 +121,23 @@ class DummyStreamlit:
         self.plot_kwargs.append(kwargs)
 
     def dataframe(self, _df, **kwargs):
+        self.dataframe_inputs.append(_df)
         self.dataframe_kwargs.append(kwargs)
 
     def download_button(self, **_kwargs):
         return None
 
     def subheader(self, _text: str):
+        self.subheaders.append(_text)
         return None
 
     def write(self, _text: str):
+        self.writes.append(str(_text))
         return None
+
+    def expander(self, label: str, expanded: bool = False):
+        self.expander_calls.append((label, expanded))
+        return DummyContainer()
 
     def rerun(self):
         return None
@@ -210,6 +221,18 @@ class DummyAgentWithAllocationOnly(DummyAgent):
             analysis_text="analysis",
             suggestions={},
         )
+
+
+class DummyAgentWithStructuredReasoning(DummyAgentWithSuggestions):
+    def run(self, **kwargs):
+        result = super().run(**kwargs)
+        result.metadata["reasoning_text"] = (
+            'Based on the analysis, here is a comprehensive dividend-oriented portfolio: '
+            '{"tickers":["AAPL","MSFT"],"weights":{"AAPL":0.5,"MSFT":0.5},'
+            '"allocation":{"AAPL":500,"MSFT":500},"analysis_text":"analysis",'
+            '"suggestions":{"add":[],"remove":[],"reweight":{"AAPL":0.5,"MSFT":0.5}}}'
+        )
+        return result
 
 
 class DummyAgentWithProgress(DummyAgent):
@@ -341,7 +364,7 @@ def test_run_dashboard_prompt_uses_single_agent(monkeypatch):
 
     assert sidebar.write_args == ("Suggested", ["AAPL", "MSFT"])
     assert any("Suggested tickers: AAPL, MSFT" in message for message in st.markdowns)
-    assert any("analysis" in message for message in st.markdowns)
+    assert any("analysis" in message for message in st.writes)
     assert st.progress_updates
     keys = [key for key, _label in st.button_calls]
     assert "accept_changes" in keys
@@ -364,7 +387,8 @@ def test_run_dashboard_shows_suggestions_and_action_buttons(monkeypatch):
 
     run_dashboard(_base_config(api_key="ok"))
 
-    assert any("Suggested portfolio changes" in message for message in st.markdowns)
+    assert any("Suggested portfolio changes" in heading for heading in st.subheaders)
+    assert any("Reweight:" in text for text in st.writes)
     keys = [key for key, _label in st.button_calls]
     assert "accept_changes" in keys
     assert "reject_changes" in keys
@@ -377,7 +401,7 @@ def test_run_dashboard_shows_reasoning_without_tool_invocations(monkeypatch):
 
     monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
     monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
-    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgentWithSuggestions)
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgentWithStructuredReasoning)
     monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
     monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
     monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
@@ -386,10 +410,10 @@ def test_run_dashboard_shows_reasoning_without_tool_invocations(monkeypatch):
 
     run_dashboard(_base_config(api_key="ok"))
 
-    assert any("Reasoning" in message for message in st.markdowns)
-    assert any("Model reasoning trace" in message for message in st.markdowns)
-    assert not any("Tool invocations" in message for message in st.markdowns)
-    assert not any("generate_tickers" in message for message in st.markdowns)
+    assert any(label.startswith("Reasoning") and expanded is False for label, expanded in st.expander_calls)
+    assert not any('"tickers"' in message for message in st.markdowns)
+    assert not any('"weights"' in message for message in st.markdowns)
+    assert not any('"allocation"' in message for message in st.markdowns)
 
 
 def test_run_dashboard_history_chart_uses_fetched_data(monkeypatch):
@@ -463,7 +487,7 @@ def test_run_dashboard_streams_assistant_llm_messages(monkeypatch):
     run_dashboard(_base_config(api_key="ok"))
 
     assert any("Suggested tickers: AAPL, MSFT" in message for message in st.streamed_messages)
-    assert any("analysis" in message for message in st.streamed_messages)
+    assert any("Check other tabs" in message for message in st.streamed_messages)
 
 
 def test_run_dashboard_shows_progress_for_weights_and_analysis(monkeypatch):
@@ -485,3 +509,26 @@ def test_run_dashboard_shows_progress_for_weights_and_analysis(monkeypatch):
     progress_texts = [text or "" for _value, text in st.progress_updates]
     assert any("Computing portfolio weights" in text for text in progress_texts)
     assert any("Analyzing portfolio" in text for text in progress_texts)
+
+
+def test_run_dashboard_reuses_allocation_dataframe_in_chat_and_portfolio(monkeypatch):
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgent)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    current_df = st.session_state["allocation_table_df"]
+    occurrences = sum(1 for df in st.dataframe_inputs if df is current_df)
+    assert occurrences >= 2
+    assert any("Portfolio Analysis" in heading for heading in st.subheaders)
+    assert any("Suggested portfolio changes" in heading for heading in st.subheaders)

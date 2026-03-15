@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from typing import Any, Dict, Optional
 
@@ -73,6 +74,70 @@ def _push_chat_message(role: str, content: str, container) -> None:
                 st.markdown(content)
 
 
+def _strip_json_block(text: str) -> str:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return text.strip()
+    return (text[:start] + text[end + 1 :]).strip()
+
+
+def _clean_reasoning_text(reasoning_text: str) -> str:
+    cleaned = _strip_json_block(reasoning_text)
+    # Remove any leftover structured-key mentions from text output.
+    cleaned = re.sub(r'"?(tickers|weights|allocation)"?\s*:\s*[^\n]+', "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
+def _build_allocation_table(tickers: list[str], weights: dict[str, float], allocation: dict[str, float]) -> pd.DataFrame:
+    rows = []
+    for ticker in tickers:
+        rows.append(
+            {
+                "Ticker": ticker,
+                "Weight": float(weights.get(ticker, 0.0)),
+                "Allocation": float(allocation.get(ticker, 0.0)),
+            }
+        )
+    
+    return pd.DataFrame(rows)
+
+
+def _format_suggestions_text(suggestions: dict[str, Any], weights: dict[str, float]) -> str:
+    if suggestions:
+        return PortfolioDisplaySummary().format_suggestions(suggestions)
+    if weights:
+        return PortfolioDisplaySummary().format_suggestions({"add": [], "remove": [], "reweight": weights})
+    return "No suggested changes."
+
+
+def _render_current_portfolio_sections(container, ui: Dict[str, Any]) -> None:
+    allocation_df = st.session_state.get("allocation_table_df")
+    if isinstance(allocation_df, pd.DataFrame) and not allocation_df.empty:
+        with container:
+            st.subheader(ui.get("current_portfolio_table_label", "Current Portfolio Allocation"))
+            st.dataframe(
+                allocation_df,
+                column_config={
+                    "Weight": st.column_config.NumberColumn(
+                        "Weight (%)",
+                        help="Weight of the ticker in the portfolio",
+                        format="%.2f %%" # Use '%%' to display a literal '%' sign
+                    )},
+                 width="stretch", hide_index=True)
+
+            st.subheader(ui.get("analysis_heading", "Portfolio Analysis"))
+            st.write(st.session_state.get("analysis_text", ""))
+
+            st.subheader(ui.get("suggestions_heading", "Suggested portfolio changes"))
+            st.write(st.session_state.get("suggestions_text", "No suggested changes."))
+
+            reasoning_display = st.session_state.get("reasoning_display_text", "")
+            if reasoning_display:
+                with st.expander(ui.get("reasoning_expander_label", "Reasoning (hidden by default)"), expanded=False):
+                    st.markdown(reasoning_display)
+
+
 def _init_state(default_user_input: str, default_portfolio_size: float, chat_intro: str) -> None:
     state = st.session_state
     state.setdefault("messages", [{"role": "assistant", "content": chat_intro}])
@@ -86,6 +151,9 @@ def _init_state(default_user_input: str, default_portfolio_size: float, chat_int
     state.setdefault("portfolio_financials", {})
     state.setdefault("portfolio_series", pd.Series(dtype=float))
     state.setdefault("analysis_text", "")
+    state.setdefault("reasoning_display_text", "")
+    state.setdefault("suggestions_text", "")
+    state.setdefault("allocation_table_df", pd.DataFrame())
     state.setdefault("pending_suggestions", {})
     state.setdefault("recommended_tickers", [])
     state.setdefault("excluded_tickers", [])
@@ -127,6 +195,11 @@ def _apply_agent_result(result: AgentResult, financial_metrics: list[str]) -> No
     st.session_state["analysis_text"] = result.analysis_text
     st.session_state["pending_suggestions"] = result.suggestions
     st.session_state["latest_result"] = result
+    st.session_state["suggestions_text"] = _format_suggestions_text(result.suggestions, normalized_weights)
+    st.session_state["allocation_table_df"] = _build_allocation_table(tickers, normalized_weights, allocation)
+
+    reasoning_text = str(result.metadata.get("reasoning_text", "")).strip()
+    st.session_state["reasoning_display_text"] = _clean_reasoning_text(reasoning_text) if reasoning_text else ""
 
     portfolio_series = build_portfolio_returns_series(
         {ticker: data["history"] for ticker, data in result.data_by_ticker.items()},
@@ -205,6 +278,8 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         for message in st.session_state["messages"]:
             with st.chat_message(message["role"], avatar=_chat_avatar(message["role"])):
                 st.markdown(message["content"])
+
+        _render_current_portfolio_sections(chat_tab, ui)
 
         if st.session_state.get("is_processing", False):
             typed_prompt_input = None
@@ -302,22 +377,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         st.session_state["awaiting_user_decision"] = bool(result.weights or result.suggestions)
         if result.tickers:
             _push_chat_message("assistant", ui["ticker_reply_template"].format(tickers=", ".join(result.tickers)), chat_tab)
-        reasoning_text = str(result.metadata.get("reasoning_text", "")).strip()
-        if reasoning_text:
-            _push_chat_message("assistant", f"**Reasoning**\n\n{reasoning_text}", chat_tab)
-
-        if result.analysis_text:
-            _push_chat_message("assistant", result.analysis_text, chat_tab)
-        if result.suggestions:
-            _push_chat_message("assistant", "Suggested portfolio changes", chat_tab)
-            _push_chat_message("assistant", PortfolioDisplaySummary().format_suggestions(result.suggestions), chat_tab)
-        elif result.weights:
-            _push_chat_message("assistant", "Suggested portfolio changes", chat_tab)
-            _push_chat_message(
-                "assistant",
-                PortfolioDisplaySummary().format_suggestions({"add": [], "remove": [], "reweight": result.weights}),
-                chat_tab,
-            )
+        _render_current_portfolio_sections(chat_tab, ui)
         _push_chat_message("assistant", ui["post_analysis_nudge"], chat_tab)
         st.rerun()
 
@@ -339,10 +399,9 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             )
             _apply_agent_result(updated, financial_metrics)
             st.session_state["awaiting_user_decision"] = bool(updated.suggestions)
-            st.session_state["messages"].append({"role": "assistant", "content": updated.analysis_text})
-            if updated.suggestions:
+            if updated.analysis_text:
                 st.session_state["messages"].append(
-                    {"role": "assistant", "content": PortfolioDisplaySummary().format_suggestions(updated.suggestions)}
+                    {"role": "assistant", "content": "Portfolio updated. Review the latest analysis and suggestions below."}
                 )
             st.rerun()
 
@@ -384,6 +443,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             st.info(ui["portfolio_empty_message"])
         else:
             st.write(PortfolioDisplaySummary().format_portfolio_header(tickers))
+            _render_current_portfolio_sections(portfolio_tab, ui)
             allocation = st.session_state.get("portfolio_allocation", {})
             if allocation:
                 st.subheader(ui["portfolio_output_label"])
