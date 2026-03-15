@@ -182,6 +182,28 @@ class DummyAgentWithSuggestions(DummyAgent):
         )
 
 
+class DummyAgentWithAllocationOnly(DummyAgent):
+    def run(self, **kwargs):
+        self.calls.append(("run", kwargs))
+        return AgentResult(
+            tickers=["AAPL", "MSFT"],
+            data_by_ticker={
+                "AAPL": {
+                    "history": pd.DataFrame({"Close": [1.0, 1.1]}),
+                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
+                },
+                "MSFT": {
+                    "history": pd.DataFrame({"Close": [1.0, 1.05]}),
+                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
+                },
+            },
+            weights={},
+            allocation={"AAPL": 700.0, "MSFT": 300.0},
+            analysis_text="analysis",
+            suggestions={},
+        )
+
+
 class DummyClient:
     pass
 
@@ -371,3 +393,29 @@ def test_run_dashboard_history_chart_uses_fetched_data(monkeypatch):
     assert captured["selected_tickers"] == ["AAPL", "MSFT"]
     assert set(captured["history_by_ticker"].keys()) == {"AAPL", "MSFT"}
     assert any(kwargs.get("width") == "stretch" for kwargs in st.plot_kwargs)
+
+
+def test_run_dashboard_preserves_non_equal_allocation_when_valid(monkeypatch):
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgentWithAllocationOnly)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    captured = {}
+
+    def _plot_allocation(allocation, title):
+        captured["allocation"] = dict(allocation)
+        return "allocation"
+
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", _plot_allocation)
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    assert captured["allocation"] == {"AAPL": 700.0, "MSFT": 300.0}

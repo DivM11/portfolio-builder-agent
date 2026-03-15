@@ -53,6 +53,34 @@ class CaptureLLMService:
         return _Response()
 
 
+class TwoStepLLMService:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete_with_tools(self, **_kwargs):
+        self.calls += 1
+
+        class _Response:
+            tool_calls = []
+            has_tool_calls = False
+            text = "{}"
+
+        if self.calls == 1:
+            _Response.text = json.dumps(
+                {
+                    "tickers": ["AAPL", "MSFT"],
+                    "weights": {"AAPL": 0.7, "MSFT": 0.3},
+                    "allocation": {"AAPL": 700, "MSFT": 300},
+                    "analysis_text": "initial",
+                    "suggestions": {},
+                }
+            )
+        else:
+            _Response.text = json.dumps({"analysis_text": "refined"})
+
+        return _Response()
+
+
 def _base_config() -> dict:
     return {
         "stocks": {
@@ -191,3 +219,26 @@ def test_parse_final_result_accepts_legacy_changes_shape() -> None:
 
     assert result.suggestions["remove"] == ["AAPL"]
     assert result.suggestions["reweight"]["MSFT"] == 0.7
+
+
+def test_refine_preserves_previous_portfolio_when_output_partial() -> None:
+    cfg = _base_config()
+    cfg["agent"] = {"model": "anthropic/claude-sonnet-4.5", "max_tokens": 128, "temperature": 0.2, "max_tool_rounds": 1}
+    llm = TwoStepLLMService()
+    agent = PortfolioAgent(
+        llm,
+        cfg,
+        massive_client_factory=lambda _k: object(),
+        stock_data_fetcher=lambda **_kwargs: {},
+    )
+    agent.tickr_data_manager.cache = {
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]}), "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"])} ,
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]}), "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"])} ,
+    }
+
+    initial = agent.run(user_input="u", portfolio_size=1000.0)
+    refined = agent.refine(feedback="apply updates")
+
+    assert initial.weights == {"AAPL": 0.7, "MSFT": 0.3}
+    assert refined.weights == {"AAPL": 0.7, "MSFT": 0.3}
+    assert refined.allocation == {"AAPL": 700.0, "MSFT": 300.0}

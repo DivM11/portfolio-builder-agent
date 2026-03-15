@@ -103,11 +103,17 @@ def _apply_agent_result(result: AgentResult, financial_metrics: list[str]) -> No
 
     tickers = list(result.tickers)
     normalized_weights = normalize_weights(weights, tickers)
-    allocation = allocate_portfolio_by_weights(
-        tickers,
-        float(st.session_state.get("portfolio_size", 0.0)),
-        normalized_weights,
-    )
+
+    portfolio_size = float(st.session_state.get("portfolio_size", 0.0))
+    allocation = dict(result.allocation)
+    total_allocation = float(sum(allocation.values())) if allocation else 0.0
+    has_valid_allocation = allocation and portfolio_size > 0 and abs(total_allocation - portfolio_size) <= max(1.0, portfolio_size * 0.01)
+    if not has_valid_allocation:
+        allocation = allocate_portfolio_by_weights(
+            tickers,
+            portfolio_size,
+            normalized_weights,
+        )
 
     st.session_state["weights"] = normalized_weights
     st.session_state["portfolio_allocation"] = allocation

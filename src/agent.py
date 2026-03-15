@@ -77,7 +77,7 @@ class PortfolioAgent:
             context,
             action_payload={"user_input": user_input, "portfolio_size": portfolio_size},
         )
-        self._last_result = self._run_loop(context, progress_callback=progress_callback)
+        self._last_result = self._run_loop(context, progress_callback=progress_callback, seed_result=None)
         return self._last_result
 
     def refine(
@@ -106,7 +106,7 @@ class PortfolioAgent:
             action="refine",
             action_payload={"feedback": feedback},
         )
-        self._last_result = self._run_loop(context, progress_callback=progress_callback)
+        self._last_result = self._run_loop(context, progress_callback=progress_callback, seed_result=previous)
         return self._last_result
 
     def _system_prompt(self, context: AgentContext) -> str:
@@ -138,6 +138,7 @@ class PortfolioAgent:
         context: AgentContext,
         *,
         progress_callback: ProgressCallback | None = None,
+        seed_result: AgentResult | None = None,
     ) -> AgentResult:
         openrouter_cfg = self.config.get("openrouter", {})
         agent_cfg = self.config.get("agent", {})
@@ -159,10 +160,10 @@ class PortfolioAgent:
             raise ValueError("Missing Massive.com API key")
         massive_client = self._massive_client_factory(massive_api_key)
         work_state: dict[str, Any] = {
-            "tickers": [],
-            "weights": {},
-            "allocation": {},
-            "summary": "",
+            "tickers": list(seed_result.tickers) if seed_result else [],
+            "weights": dict(seed_result.weights) if seed_result else {},
+            "allocation": dict(seed_result.allocation) if seed_result else {},
+            "summary": seed_result.summary_text if seed_result else "",
             "analysis": {},
             "tool_invocations": [],
             "reasoning_text": "",
