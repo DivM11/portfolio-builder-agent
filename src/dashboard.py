@@ -138,11 +138,6 @@ def _render_current_portfolio_sections(container, ui: Dict[str, Any]) -> None:
             st.subheader(ui.get("suggestions_heading", "Suggested portfolio changes"))
             st.write(st.session_state.get("suggestions_text", "No suggested changes."))
 
-            reasoning_display = st.session_state.get("reasoning_display_text", "")
-            if reasoning_display:
-                with st.expander(ui.get("reasoning_expander_label", "Reasoning (hidden by default)"), expanded=False):
-                    st.markdown(reasoning_display)
-
 
 def _init_state(default_user_input: str, default_portfolio_size: float, chat_intro: str) -> None:
     state = st.session_state
@@ -477,11 +472,6 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             returns_fig = plot_portfolio_returns(portfolio_series, ui["portfolio_returns_label"])
             if returns_fig is not None:
                 st.plotly_chart(returns_fig, width="stretch")
-
-            portfolio_financials = st.session_state.get("portfolio_financials", {})
-            if portfolio_financials:
-                st.subheader(ui["portfolio_financials_label"])
-                st.dataframe(pd.DataFrame([portfolio_financials]), width="stretch", hide_index=True)
 
             pending_suggestions = st.session_state.get("pending_suggestions", {})
             if pending_suggestions:
