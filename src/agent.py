@@ -154,12 +154,8 @@ class PortfolioAgent:
         status_callback: StepStatusCallback | None = None,
         seed_result: AgentResult | None = None,
     ) -> AgentResult:
-        openrouter_cfg = self.config.get("openrouter", {})
         agent_cfg = self.config.get("agent", {})
-        model = agent_cfg.get(
-            "model",
-            openrouter_cfg.get("default_models", {}).get("ticker", "anthropic/claude-sonnet-4.5"),
-        )
+        model = agent_cfg.get("model", "anthropic/claude-sonnet-4.5")
         max_tokens = int(agent_cfg.get("max_tokens", 4096))
         temperature = float(agent_cfg.get("temperature", 0.2))
         max_tool_rounds = int(agent_cfg.get("max_tool_rounds", 10))

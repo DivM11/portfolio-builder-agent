@@ -116,15 +116,21 @@ def _render_current_portfolio_sections(container, ui: Dict[str, Any]) -> None:
     if isinstance(allocation_df, pd.DataFrame) and not allocation_df.empty:
         with container:
             st.subheader(ui.get("current_portfolio_table_label", "Current Portfolio Allocation"))
-            st.dataframe(
-                allocation_df,
-                column_config={
-                    "Weight": st.column_config.NumberColumn(
-                        "Weight (%)",
-                        help="Weight of the ticker in the portfolio",
-                        format="percent"
-                    )},
-                 width="stretch", hide_index=True)
+            if hasattr(st, "column_config"):
+                st.dataframe(
+                    allocation_df,
+                    column_config={
+                        "Weight": st.column_config.NumberColumn(
+                            "Weight (%)",
+                            help="Weight of the ticker in the portfolio",
+                            format="percent",
+                        )
+                    },
+                    width="stretch",
+                    hide_index=True,
+                )
+            else:
+                st.dataframe(allocation_df, width="stretch", hide_index=True)
 
             st.subheader(ui.get("analysis_heading", "Portfolio Analysis"))
             st.write(st.session_state.get("analysis_text", ""))
