@@ -16,6 +16,7 @@ from src.event_store import create_event_store
 from src.llm_service import LLMService, create_openrouter_client
 from src.logging_config import set_log_context
 from src.plots import plot_history, plot_portfolio_allocation, plot_portfolio_returns
+from src.portfolio import allocate_portfolio_by_weights, normalize_weights
 from src.portfolio_display_summary import PortfolioDisplaySummary
 from src.summaries import (
     build_portfolio_returns_series,
@@ -88,6 +89,7 @@ def _init_state(default_user_input: str, default_portfolio_size: float, chat_int
     state.setdefault("latest_result", AgentResult())
     state.setdefault("is_processing", False)
     state.setdefault("pending_prompt", None)
+    state.setdefault("awaiting_user_decision", False)
 
 
 def _apply_agent_result(result: AgentResult, financial_metrics: list[str]) -> None:
@@ -99,21 +101,29 @@ def _apply_agent_result(result: AgentResult, financial_metrics: list[str]) -> No
         if total > 0:
             weights = {ticker: float(amount) / total for ticker, amount in result.allocation.items()}
 
-    st.session_state["weights"] = weights
-    st.session_state["portfolio_allocation"] = result.allocation
+    tickers = list(result.tickers)
+    normalized_weights = normalize_weights(weights, tickers)
+    allocation = allocate_portfolio_by_weights(
+        tickers,
+        float(st.session_state.get("portfolio_size", 0.0)),
+        normalized_weights,
+    )
+
+    st.session_state["weights"] = normalized_weights
+    st.session_state["portfolio_allocation"] = allocation
     st.session_state["analysis_text"] = result.analysis_text
     st.session_state["pending_suggestions"] = result.suggestions
     st.session_state["latest_result"] = result
 
     portfolio_series = build_portfolio_returns_series(
         {ticker: data["history"] for ticker, data in result.data_by_ticker.items()},
-        weights,
+        normalized_weights,
     )
     st.session_state["portfolio_series"] = portfolio_series
     st.session_state["portfolio_stats"] = summarize_portfolio_stats(portfolio_series)
     st.session_state["portfolio_financials"] = summarize_portfolio_financials(
         {ticker: data["financials"] for ticker, data in result.data_by_ticker.items()},
-        result.weights,
+        normalized_weights,
         financial_metrics,
     )
 
@@ -264,6 +274,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         st.session_state["pending_prompt"] = None
         st.session_state["is_processing"] = False
         _apply_agent_result(result, financial_metrics)
+        st.session_state["awaiting_user_decision"] = bool(result.weights or result.suggestions)
         if result.tickers:
             _push_chat_message("assistant", ui["ticker_reply_template"].format(tickers=", ".join(result.tickers)), chat_tab)
         reasoning_text = str(result.metadata.get("reasoning_text", "")).strip()
@@ -275,13 +286,23 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         if result.suggestions:
             _push_chat_message("assistant", "Suggested portfolio changes", chat_tab)
             _push_chat_message("assistant", PortfolioDisplaySummary().format_suggestions(result.suggestions), chat_tab)
+        elif result.weights:
+            _push_chat_message("assistant", "Suggested portfolio changes", chat_tab)
+            _push_chat_message(
+                "assistant",
+                PortfolioDisplaySummary().format_suggestions({"add": [], "remove": [], "reweight": result.weights}),
+                chat_tab,
+            )
         _push_chat_message("assistant", ui["post_analysis_nudge"], chat_tab)
         st.rerun()
 
     agent = st.session_state.get("portfolio_agent")
     pending_suggestions = st.session_state.get("pending_suggestions", {})
-    if agent and pending_suggestions:
+    awaiting_user_decision = bool(st.session_state.get("awaiting_user_decision", False))
+    if agent and awaiting_user_decision:
         with chat_tab:
+            if not pending_suggestions:
+                st.caption("Review the proposed portfolio and choose whether to apply further changes.")
             accept = st.button(ui.get("evaluator_accept_button", "Accept Changes"), key="accept_changes")
             reject = st.button(ui.get("evaluator_reject_button", "Keep Current Portfolio"), key="reject_changes")
 
@@ -292,6 +313,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 run_id=_new_correlation_id(),
             )
             _apply_agent_result(updated, financial_metrics)
+            st.session_state["awaiting_user_decision"] = bool(updated.suggestions)
             st.session_state["messages"].append({"role": "assistant", "content": updated.analysis_text})
             if updated.suggestions:
                 st.session_state["messages"].append(
@@ -301,6 +323,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
 
         if reject:
             st.session_state["pending_suggestions"] = {}
+            st.session_state["awaiting_user_decision"] = False
             st.session_state["messages"].append(
                 {"role": "assistant", "content": ui.get("evaluator_rejected", "Keeping current portfolio without changes.")}
             )

@@ -165,3 +165,29 @@ def test_agent_run_passes_reasoning_config_to_llm() -> None:
     response_format = llm.calls[0].get("response_format")
     assert isinstance(response_format, dict)
     assert response_format.get("type") == "json_schema"
+
+
+def test_parse_final_result_accepts_legacy_changes_shape() -> None:
+    agent = PortfolioAgent(DummyLLMService(), _base_config())
+    agent.tickr_data_manager.cache = {
+        "AAPL": {
+            "history": pd.DataFrame({"Close": [1.0, 1.1]}),
+            "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
+        },
+        "MSFT": {
+            "history": pd.DataFrame({"Close": [1.0, 1.05]}),
+            "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
+        },
+    }
+    payload = {
+        "tickers": ["AAPL", "MSFT"],
+        "weights": {"AAPL": 0.6, "MSFT": 0.4},
+        "allocation": {"AAPL": 600, "MSFT": 400},
+        "analysis_text": "ok",
+        "changes": {"add": [], "remove": ["AAPL"], "reweight": {"MSFT": 0.7, "AAPL": 0.3}},
+    }
+
+    result = agent._parse_final_result(json.dumps(payload))
+
+    assert result.suggestions["remove"] == ["AAPL"]
+    assert result.suggestions["reweight"]["MSFT"] == 0.7

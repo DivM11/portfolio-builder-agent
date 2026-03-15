@@ -365,6 +365,10 @@ class PortfolioAgent:
         suggestions = payload.get("suggestions", {})
         if not isinstance(suggestions, dict):
             suggestions = {}
+        if not suggestions:
+            changes = payload.get("changes", {})
+            if isinstance(changes, dict):
+                suggestions = changes
         suggestions = self._ensure_suggestions(suggestions, weights)
 
         analysis_text = str(payload.get("analysis_text", text)).strip()

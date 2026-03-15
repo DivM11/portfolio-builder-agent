@@ -296,6 +296,9 @@ def test_run_dashboard_prompt_uses_single_agent(monkeypatch):
     assert any("Suggested tickers: AAPL, MSFT" in message for message in st.markdowns)
     assert any("analysis" in message for message in st.markdowns)
     assert st.progress_updates
+    keys = [key for key, _label in st.button_calls]
+    assert "accept_changes" in keys
+    assert "reject_changes" in keys
 
 
 def test_run_dashboard_shows_suggestions_and_action_buttons(monkeypatch):
