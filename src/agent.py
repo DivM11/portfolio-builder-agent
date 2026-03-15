@@ -25,6 +25,7 @@ from src.tools.fetch_ticker_data import tool_definition as fetch_ticker_data_too
 from src.tools.generate_tickers import tool_definition as generate_tickers_tool_definition
 
 logger = logging.getLogger(__name__)
+StepStatusCallback = Callable[[str], None]
 
 
 class PortfolioAgent:
@@ -60,6 +61,7 @@ class PortfolioAgent:
         session_id: str | None = None,
         run_id: str | None = None,
         progress_callback: ProgressCallback | None = None,
+        status_callback: StepStatusCallback | None = None,
     ) -> AgentResult:
         context = AgentContext(
             user_input=user_input,
@@ -77,7 +79,12 @@ class PortfolioAgent:
             context,
             action_payload={"user_input": user_input, "portfolio_size": portfolio_size},
         )
-        self._last_result = self._run_loop(context, progress_callback=progress_callback, seed_result=None)
+        self._last_result = self._run_loop(
+            context,
+            progress_callback=progress_callback,
+            status_callback=status_callback,
+            seed_result=None,
+        )
         return self._last_result
 
     def refine(
@@ -87,6 +94,7 @@ class PortfolioAgent:
         session_id: str | None = None,
         run_id: str | None = None,
         progress_callback: ProgressCallback | None = None,
+        status_callback: StepStatusCallback | None = None,
     ) -> AgentResult:
         if not self._messages:
             raise ValueError("Cannot refine before running the agent at least once")
@@ -106,7 +114,12 @@ class PortfolioAgent:
             action="refine",
             action_payload={"feedback": feedback},
         )
-        self._last_result = self._run_loop(context, progress_callback=progress_callback, seed_result=previous)
+        self._last_result = self._run_loop(
+            context,
+            progress_callback=progress_callback,
+            status_callback=status_callback,
+            seed_result=previous,
+        )
         return self._last_result
 
     def _system_prompt(self, context: AgentContext) -> str:
@@ -138,6 +151,7 @@ class PortfolioAgent:
         context: AgentContext,
         *,
         progress_callback: ProgressCallback | None = None,
+        status_callback: StepStatusCallback | None = None,
         seed_result: AgentResult | None = None,
     ) -> AgentResult:
         openrouter_cfg = self.config.get("openrouter", {})
@@ -209,6 +223,7 @@ class PortfolioAgent:
                         call.arguments,
                         context=context,
                         progress_callback=progress_callback,
+                        status_callback=status_callback,
                         massive_client=massive_client,
                         work_state=work_state,
                     )
@@ -262,6 +277,7 @@ class PortfolioAgent:
         *,
         context: AgentContext,
         progress_callback: ProgressCallback | None,
+        status_callback: StepStatusCallback | None,
         massive_client: Any,
         work_state: dict[str, Any],
     ) -> dict[str, Any]:
@@ -316,12 +332,16 @@ class PortfolioAgent:
             return payload
 
         if name == "allocate_weights":
+            if status_callback is not None:
+                status_callback("allocate_weights")
             payload = allocate_weights_tool(arguments)
             work_state["weights"] = payload.get("normalized_weights", {})
             work_state["allocation"] = payload.get("allocation", {})
             return payload
 
         if name == "analyze_portfolio":
+            if status_callback is not None:
+                status_callback("analyze_portfolio")
             if not work_state.get("summary"):
                 tickers_for_summary = [str(t).upper() for t in arguments.get("tickers", work_state.get("tickers", []))]
                 if tickers_for_summary:

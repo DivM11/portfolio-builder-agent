@@ -131,6 +131,7 @@ def test_execute_tool_logs_tool_call_event_with_explicit_fields() -> None:
         {"tickers": ["AAPL", "MSFT"]},
         context=context,
         progress_callback=None,
+        status_callback=None,
         massive_client=object(),
         work_state={},
     )
@@ -162,6 +163,7 @@ def test_execute_tool_analyze_builds_summary_if_missing() -> None:
         {"tickers": ["AAPL", "MSFT"], "weights": {"AAPL": 0.6, "MSFT": 0.4}},
         context=context,
         progress_callback=None,
+        status_callback=None,
         massive_client=object(),
         work_state=work_state,
     )

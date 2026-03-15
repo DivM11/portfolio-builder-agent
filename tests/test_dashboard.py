@@ -212,6 +212,23 @@ class DummyAgentWithAllocationOnly(DummyAgent):
         )
 
 
+class DummyAgentWithProgress(DummyAgent):
+    def run(self, **kwargs):
+        self.calls.append(("run", kwargs))
+
+        progress_callback = kwargs.get("progress_callback")
+        if progress_callback is not None:
+            progress_callback(0, 2, "AAPL")
+            progress_callback(1, 2, "MSFT")
+
+        status_callback = kwargs.get("status_callback")
+        if status_callback is not None:
+            status_callback("allocate_weights")
+            status_callback("analyze_portfolio")
+
+        return super().run(**kwargs)
+
+
 class DummyClient:
     pass
 
@@ -447,3 +464,24 @@ def test_run_dashboard_streams_assistant_llm_messages(monkeypatch):
 
     assert any("Suggested tickers: AAPL, MSFT" in message for message in st.streamed_messages)
     assert any("analysis" in message for message in st.streamed_messages)
+
+
+def test_run_dashboard_shows_progress_for_weights_and_analysis(monkeypatch):
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgentWithProgress)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    progress_texts = [text or "" for _value, text in st.progress_updates]
+    assert any("Computing portfolio weights" in text for text in progress_texts)
+    assert any("Analyzing portfolio" in text for text in progress_texts)

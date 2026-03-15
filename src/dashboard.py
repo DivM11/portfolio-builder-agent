@@ -249,6 +249,8 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         progress_holder: Dict[str, Any] = {}
         progress_start_text = ui.get("fetch_progress_start", "Fetching ticker data...")
         progress_ticker_template = ui.get("fetch_progress_ticker", "Fetching {ticker} ({current}/{total})")
+        weights_progress_text = ui.get("weights_progress_text", "Computing portfolio weights...")
+        analysis_progress_text = ui.get("analysis_progress_text", "Analyzing portfolio...")
 
         def _on_fetch_progress(current: int, total: int, ticker: str) -> None:
             bar = progress_holder.get("bar")
@@ -256,9 +258,18 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 return
             if total > 0:
                 bar.progress(
-                    min((current + 1) / total, 1.0),
+                    min(((current + 1) / total) * 0.7, 0.7),
                     text=progress_ticker_template.format(ticker=ticker, current=current + 1, total=total),
                 )
+
+        def _on_agent_step(step: str) -> None:
+            bar = progress_holder.get("bar")
+            if bar is None:
+                return
+            if step == "allocate_weights":
+                bar.progress(0.85, text=weights_progress_text)
+            elif step == "analyze_portfolio":
+                bar.progress(0.95, text=analysis_progress_text)
 
         try:
             with chat_tab:
@@ -270,6 +281,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 session_id=session_id,
                 run_id=run_id,
                 progress_callback=_on_fetch_progress,
+                status_callback=_on_agent_step,
             )
             bar = progress_holder.get("bar")
             if bar is not None:
