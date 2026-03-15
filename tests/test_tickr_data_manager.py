@@ -58,3 +58,32 @@ def test_tickr_data_manager_tracks_rate_limited_failures():
 
     assert result.tickers_with_history == []
     assert result.failed_history_by_status["rate_limited"] == ["AAPL"]
+
+
+def test_tickr_data_manager_passes_client_keyword_to_fetcher():
+    manager = TickrDataManager()
+    seen = {}
+
+    def fetcher(*, client, ticker, history_period, financials_period):
+        seen["client"] = client
+        seen["ticker"] = ticker
+        seen["history_period"] = history_period
+        seen["financials_period"] = financials_period
+        return _payload([100.0, 101.0])
+
+    token_client = object()
+    result = manager.fetch_for_tickers(
+        tickers=["AAPL"],
+        fetcher=fetcher,
+        history_period="1y",
+        financials_period="quarterly",
+        massive_client=token_client,
+    )
+
+    assert result.tickers_with_history == ["AAPL"]
+    assert seen == {
+        "client": token_client,
+        "ticker": "AAPL",
+        "history_period": "1y",
+        "financials_period": "quarterly",
+    }

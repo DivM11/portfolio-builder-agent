@@ -28,12 +28,28 @@ def plot_history(
         history = history_by_ticker.get(ticker)
         if history is None or history.empty:
             continue
-        if "Close" not in history.columns:
+
+        close_col = None
+        for candidate in history.columns:
+            if str(candidate).strip().lower() == "close":
+                close_col = candidate
+                break
+        if close_col is None:
             continue
+
+        close_series = pd.to_numeric(history[close_col], errors="coerce").dropna()
+        if close_series.empty:
+            continue
+
+        x_values = close_series.index
+        if isinstance(x_values, pd.DatetimeIndex):
+            x_values = x_values.sort_values()
+            close_series = close_series.reindex(x_values)
+
         fig.add_trace(
             go.Scatter(
-                x=history.index,
-                y=history["Close"],
+                x=x_values,
+                y=close_series.values,
                 mode="lines",
                 name=ticker,
             )

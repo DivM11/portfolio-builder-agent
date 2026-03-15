@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 import pandas as pd
 
 ProgressCallback = Callable[[int, int, str], None]
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -65,11 +67,12 @@ class TickrDataManager:
                         ticker=ticker,
                         history_period=history_period,
                         financials_period=financials_period,
-                        massive_client=massive_client,
+                        client=massive_client,
                     )
                     self.update_ticker(ticker, ticker_data)
                     fetched_tickers.append(ticker)
                 except Exception:
+                    logger.exception("Ticker fetch failed for %s", ticker)
                     failed_history_by_status["unexpected_error"].append(ticker)
                     continue
 
