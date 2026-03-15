@@ -177,6 +177,7 @@ class PortfolioAgent:
                 messages=self._messages,
                 tools=self._tool_definitions(),
                 reasoning=reasoning_cfg,
+                response_format=self._response_format(),
                 session_id=context.session_id,
                 run_id=context.run_id,
             )
@@ -444,6 +445,55 @@ class PortfolioAgent:
                 agent="portfolio_agent",
             )
         )
+
+    @staticmethod
+    def _response_format() -> dict[str, Any]:
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "portfolio_agent_result",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "tickers": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                        "weights": {
+                            "type": "object",
+                            "additionalProperties": {"type": "number"},
+                        },
+                        "allocation": {
+                            "type": "object",
+                            "additionalProperties": {"type": "number"},
+                        },
+                        "analysis_text": {"type": "string"},
+                        "suggestions": {
+                            "type": "object",
+                            "properties": {
+                                "add": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "remove": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                },
+                                "reweight": {
+                                    "type": "object",
+                                    "additionalProperties": {"type": "number"},
+                                },
+                            },
+                            "required": ["add", "remove", "reweight"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "required": ["tickers", "weights", "allocation", "analysis_text", "suggestions"],
+                    "additionalProperties": False,
+                },
+            },
+        }
 
 
 def _extract_json_payload(text: str) -> dict[str, Any]:

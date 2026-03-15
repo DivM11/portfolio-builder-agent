@@ -181,6 +181,7 @@ class LLMService:
         messages: List[Dict[str, Any]],
         tools: List[Dict[str, Any]],
         reasoning: Dict[str, Any] | None = None,
+        response_format: Dict[str, Any] | None = None,
         session_id: Optional[str] = None,
         run_id: Optional[str] = None,
     ) -> ToolResponse:
@@ -222,6 +223,8 @@ class LLMService:
             }
             if reasoning:
                 request_kwargs["extra_body"] = {"reasoning": reasoning}
+            if response_format:
+                request_kwargs["response_format"] = response_format
             raw_response = raw_client.create(
                 **request_kwargs,
             )
@@ -238,6 +241,8 @@ class LLMService:
             }
             if reasoning:
                 request_kwargs["extra_body"] = {"reasoning": reasoning}
+            if response_format:
+                request_kwargs["response_format"] = response_format
             parsed_response = self.client.chat.completions.create(**request_kwargs)
             status_code = None
 

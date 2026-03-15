@@ -162,3 +162,6 @@ def test_agent_run_passes_reasoning_config_to_llm() -> None:
 
     assert llm.calls
     assert llm.calls[0].get("reasoning") == {"effort": "high", "exclude": False}
+    response_format = llm.calls[0].get("response_format")
+    assert isinstance(response_format, dict)
+    assert response_format.get("type") == "json_schema"

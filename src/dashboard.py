@@ -86,12 +86,20 @@ def _init_state(default_user_input: str, default_portfolio_size: float, chat_int
     state.setdefault("event_store", None)
     state.setdefault("portfolio_agent", None)
     state.setdefault("latest_result", AgentResult())
+    state.setdefault("is_processing", False)
+    state.setdefault("pending_prompt", None)
 
 
 def _apply_agent_result(result: AgentResult, financial_metrics: list[str]) -> None:
     st.session_state["tickers"] = result.tickers
     st.session_state["data_by_ticker"] = result.data_by_ticker
-    st.session_state["weights"] = result.weights
+    weights = dict(result.weights)
+    if not weights and result.allocation:
+        total = float(sum(result.allocation.values()))
+        if total > 0:
+            weights = {ticker: float(amount) / total for ticker, amount in result.allocation.items()}
+
+    st.session_state["weights"] = weights
     st.session_state["portfolio_allocation"] = result.allocation
     st.session_state["analysis_text"] = result.analysis_text
     st.session_state["pending_suggestions"] = result.suggestions
@@ -99,7 +107,7 @@ def _apply_agent_result(result: AgentResult, financial_metrics: list[str]) -> No
 
     portfolio_series = build_portfolio_returns_series(
         {ticker: data["history"] for ticker, data in result.data_by_ticker.items()},
-        result.weights,
+        weights,
     )
     st.session_state["portfolio_series"] = portfolio_series
     st.session_state["portfolio_stats"] = summarize_portfolio_stats(portfolio_series)
@@ -163,7 +171,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
     with chat_tab:
         starter_prompt_input = None
         starter_prompts = ui.get("starter_prompts", DEFAULT_STARTER_PROMPTS)
-        if starter_prompts:
+        if starter_prompts and not st.session_state.get("is_processing", False):
             st.caption(ui.get("starter_prompts_label", "Try one:"))
             prompt_columns = st.columns(len(starter_prompts))
             for idx, column in enumerate(prompt_columns):
@@ -175,9 +183,16 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             with st.chat_message(message["role"], avatar=_chat_avatar(message["role"])):
                 st.markdown(message["content"])
 
-        typed_prompt_input = st.chat_input(ui["chat_placeholder"])
+        if st.session_state.get("is_processing", False):
+            typed_prompt_input = None
+        else:
+            typed_prompt_input = st.chat_input(ui["chat_placeholder"])
 
-    prompt_input = typed_prompt_input or starter_prompt_input
+    if typed_prompt_input or starter_prompt_input:
+        st.session_state["pending_prompt"] = typed_prompt_input or starter_prompt_input
+        st.session_state["is_processing"] = True
+
+    prompt_input = st.session_state.get("pending_prompt") if st.session_state.get("is_processing", False) else None
 
     if prompt_input:
         run_id = _new_correlation_id()
@@ -218,7 +233,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 return
             if total > 0:
                 bar.progress(
-                    current / total,
+                    min((current + 1) / total, 1.0),
                     text=progress_ticker_template.format(ticker=ticker, current=current + 1, total=total),
                 )
 
@@ -241,9 +256,13 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             bar = progress_holder.get("bar")
             if bar is not None:
                 bar.empty()
+            st.session_state["pending_prompt"] = None
+            st.session_state["is_processing"] = False
             _push_chat_message("assistant", str(exc), chat_tab)
             return
 
+        st.session_state["pending_prompt"] = None
+        st.session_state["is_processing"] = False
         _apply_agent_result(result, financial_metrics)
         if result.tickers:
             _push_chat_message("assistant", ui["ticker_reply_template"].format(tickers=", ".join(result.tickers)), chat_tab)
@@ -251,21 +270,13 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         if reasoning_text:
             _push_chat_message("assistant", f"**Reasoning**\n\n{reasoning_text}", chat_tab)
 
-        tool_invocations = result.metadata.get("tool_invocations", [])
-        if isinstance(tool_invocations, list) and tool_invocations:
-            lines = ["**Tool invocations**"]
-            for invocation in tool_invocations:
-                name = str(invocation.get("name", "unknown_tool"))
-                args = invocation.get("arguments", {})
-                lines.append(f"- {name}: `{args}`")
-            _push_chat_message("assistant", "\n".join(lines), chat_tab)
-
         if result.analysis_text:
             _push_chat_message("assistant", result.analysis_text, chat_tab)
         if result.suggestions:
             _push_chat_message("assistant", "Suggested portfolio changes", chat_tab)
             _push_chat_message("assistant", PortfolioDisplaySummary().format_suggestions(result.suggestions), chat_tab)
         _push_chat_message("assistant", ui["post_analysis_nudge"], chat_tab)
+        st.rerun()
 
     agent = st.session_state.get("portfolio_agent")
     pending_suggestions = st.session_state.get("pending_suggestions", {})

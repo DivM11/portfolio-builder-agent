@@ -320,7 +320,7 @@ def test_run_dashboard_shows_suggestions_and_action_buttons(monkeypatch):
     assert "reject_changes" in keys
 
 
-def test_run_dashboard_shows_reasoning_and_tool_invocations(monkeypatch):
+def test_run_dashboard_shows_reasoning_without_tool_invocations(monkeypatch):
     sidebar = DummySidebar()
     st = DummyStreamlit(sidebar, prompt="build me a portfolio")
     monkeypatch.setattr("src.dashboard.st", st)
@@ -338,8 +338,8 @@ def test_run_dashboard_shows_reasoning_and_tool_invocations(monkeypatch):
 
     assert any("Reasoning" in message for message in st.markdowns)
     assert any("Model reasoning trace" in message for message in st.markdowns)
-    assert any("Tool invocations" in message for message in st.markdowns)
-    assert any("generate_tickers" in message for message in st.markdowns)
+    assert not any("Tool invocations" in message for message in st.markdowns)
+    assert not any("generate_tickers" in message for message in st.markdowns)
 
 
 def test_run_dashboard_history_chart_uses_fetched_data(monkeypatch):

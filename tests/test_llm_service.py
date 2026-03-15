@@ -118,3 +118,22 @@ def test_complete_with_tools_passes_reasoning_extra_body_when_configured():
     kwargs = client.chat.completions.with_raw_response.last_kwargs
     assert kwargs is not None
     assert kwargs.get("extra_body") == {"reasoning": {"effort": "high", "exclude": False}}
+
+
+def test_complete_with_tools_passes_response_format_when_configured():
+    client = DummyClient()
+    service = LLMService(client)
+
+    service.complete_with_tools(
+        request_name="tooling",
+        model="anthropic/claude-3.5-haiku",
+        max_tokens=20,
+        temperature=0.2,
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        response_format={"type": "json_object"},
+    )
+
+    kwargs = client.chat.completions.with_raw_response.last_kwargs
+    assert kwargs is not None
+    assert kwargs.get("response_format") == {"type": "json_object"}
