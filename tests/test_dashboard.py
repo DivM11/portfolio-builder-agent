@@ -71,6 +71,7 @@ class DummyStreamlit:
         self.plot_kwargs = []
         self.dataframe_kwargs = []
         self.button_calls = []
+        self.streamed_messages: list[str] = []
 
     def title(self, _text: str) -> None:
         return None
@@ -97,6 +98,13 @@ class DummyStreamlit:
 
     def markdown(self, text: str) -> None:
         self.markdowns.append(text)
+
+    def write_stream(self, stream):
+        chunks = list(stream)
+        text = "".join(str(chunk) for chunk in chunks)
+        self.streamed_messages.append(text)
+        self.markdowns.append(text)
+        return text
 
     def progress(self, value: float, text: str | None = None):
         self.progress_updates.append((value, text))
@@ -419,3 +427,23 @@ def test_run_dashboard_preserves_non_equal_allocation_when_valid(monkeypatch):
     run_dashboard(_base_config(api_key="ok"))
 
     assert captured["allocation"] == {"AAPL": 700.0, "MSFT": 300.0}
+
+
+def test_run_dashboard_streams_assistant_llm_messages(monkeypatch):
+    sidebar = DummySidebar()
+    st = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    monkeypatch.setattr("src.dashboard.st", st)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgent)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    assert any("Suggested tickers: AAPL, MSFT" in message for message in st.streamed_messages)
+    assert any("analysis" in message for message in st.streamed_messages)

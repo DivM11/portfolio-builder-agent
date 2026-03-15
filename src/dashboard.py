@@ -59,11 +59,18 @@ def _chat_avatar(role: str) -> Optional[str]:
     return None
 
 
+def _stream_once(content: str):
+    yield content
+
+
 def _push_chat_message(role: str, content: str, container) -> None:
     st.session_state["messages"].append({"role": role, "content": content})
     with container:
         with st.chat_message(role, avatar=_chat_avatar(role)):
-            st.markdown(content)
+            if role == "assistant" and hasattr(st, "write_stream"):
+                st.write_stream(_stream_once(content))
+            else:
+                st.markdown(content)
 
 
 def _init_state(default_user_input: str, default_portfolio_size: float, chat_intro: str) -> None:
