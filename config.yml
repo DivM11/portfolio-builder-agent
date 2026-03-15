@@ -11,7 +11,7 @@ logging:
 event_store:
   enabled: true
   backend: "sqlite"
-  schema_version: 1
+  schema_version: 2
   sqlite:
     db_path: "data/events.db"
   postgres:
@@ -80,67 +80,42 @@ ui:
   portfolio_financials_label: "Portfolio Financials"
   portfolio_stats_template: "Min {min:.2f} | Max {max:.2f} | Median {median:.2f} | Current {current:.2f} | 1Y Return {return_1y:.2%}"
 
+agent:
+  model: "anthropic/claude-sonnet-4.5"
+  max_tokens: 4096
+  temperature: 0.2
+  max_tool_rounds: 10
+  max_iterations: 3
+  reasoning:
+    effort: "high"
+    exclude: false
+  system_prompt: |
+    You are a portfolio building agent. Build personalized US equity portfolios using tools.
+    Workflow:
+    1. Understand user intent.
+    2. Call generate_tickers.
+    3. Call fetch_ticker_data.
+    4. Call build_summary.
+    5. Call allocate_weights.
+    6. Call analyze_portfolio.
+    7. If results do not satisfy user criteria, adjust and repeat.
+    8. Return strict JSON with keys tickers, weights, allocation, analysis_text, suggestions.
+    Rules:
+    - Maximum {max_tickers} tickers.
+    - Weights should sum to 1.0.
+    - Excluded tickers: {excluded_tickers}
+
 openrouter:
   api:
     base_url: "https://openrouter.ai/api/v1"
     key_env_var: "OPENROUTER_API_KEY"
     http_referer: "http://localhost:8501"
     app_title: "Portfolio Builder Agent"
-
-  default_models:
-    ticker: "anthropic/claude-sonnet-4.5"
-    weights: "google/gemini-2.5-flash"
-    analysis: "anthropic/claude-haiku-4.5"
-    evaluator: "anthropic/claude-sonnet-4.5"
   model_choices:
     - "anthropic/claude-3.5-haiku"
     - "anthropic/claude-haiku-4.5"
     - "anthropic/claude-sonnet-4.5"
     - "google/gemini-2.5-flash"
-  model_labels:
-    ticker: "Stock Picker"
-    weights: "Weight Allocator"
-    analysis: "Portfolio Analyst"
-    evaluator: "Portfolio Reviewer"
-
-  outputs:
-    ticker_max_tokens: 100
-    weights_max_tokens: 400
-    analysis_max_tokens: 500
-    evaluator_max_tokens: 800
-
-  temperatures:
-    ticker: 0.2
-    weights: 0.1
-    analysis: 0.2
-    evaluator: 0.2
-
-  prompts:
-    ticker_system: "You are a financial assistant. Return up to {num_tickers} comma-separated US stock tickers. No explanations, no commentary."
-    ticker_template: "Create a portfolio with up to {num_tickers} US stock tickers for: {user_input}"
-    creator_followup_system: "You are a financial assistant refining ticker selection. Return up to {num_tickers} comma-separated US stock tickers. No explanations."
-    creator_followup_template: "Refine the portfolio ticker set with up to {num_tickers} US stock tickers based on: {user_input}"
-    weights_system: "You are a portfolio allocator. Respond with a single JSON object only. No markdown fences, no explanation, no code blocks."
-    weights_template: "Allocate portfolio weights that sum to exactly 1.0 across these tickers.\nReturn ONLY a JSON object: {{\"weights\": {{\"TICKER\": 0.25}}}}\n\nUser preferences: {user_input}\nTickers: {tickers}\nSummary:\n{summary}"
-    analysis_system: "You are a financial analyst. Provide a concise evaluation of the recommended tickers."
-    analysis_template: "User preferences: {user_input}\nPortfolio size: {portfolio_size}\nTickers: {tickers}\nWeights: {weights}\nAllocation: {allocation}\nSummary:\n{summary}\nProvide a brief evaluation and any risks."
-    evaluator_system: "You are a portfolio evaluator. Return concise analysis and include strict JSON at the end with key 'changes' shaped as {\"changes\": {\"add\": [\"AAPL\"], \"remove\": [\"TSLA\"], \"reweight\": {\"MSFT\": 0.2}}}."
-    evaluator_template: "User preferences: {user_input}\nPortfolio size: {portfolio_size}\nTickers: {tickers}\nWeights: {weights}\nAllocation: {allocation}\nSummary:\n{summary}\nEvaluate the portfolio and suggest changes if needed."
-    evaluator_followup_system: "You are a portfolio evaluator reviewing updated recommendations. Return concise analysis and strict JSON changes at the end."
-    evaluator_followup_template: "User preferences: {user_input}\nPortfolio size: {portfolio_size}\nTickers: {tickers}\nWeights: {weights}\nAllocation: {allocation}\nSummary:\n{summary}\nPrevious analysis: {previous_analysis}\nApplied changes: {applied_changes}\nRe-evaluate and suggest any remaining changes."
-
-agents:
-  max_iterations: 3
-
-validations:
-  enabled: true
-  validate_input: true
-  validate_output: true
-  fail_fast: false
-  prompts:
-    ticker: true
-    portfolio: true
-    analysis: true
 
 stocks:
   history_period: "1y"

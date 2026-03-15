@@ -1,55 +1,35 @@
-"""Dashboard module for the YFinance Agent application.
-
-Data is fetched from Massive.com (formerly Polygon.io) via the ``massive``
-Python SDK.
-"""
+"""Streamlit dashboard for the single-agent portfolio workflow."""
 
 from __future__ import annotations
 
 import logging
 import re
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-import streamlit as st
 import pandas as pd
-from openai import OpenAI
+import streamlit as st
 
-from src.agents.creator import PortfolioCreatorAgent
-from src.agents.evaluator import PortfolioEvaluatorAgent
-from src.agents.orchestrator import (
-    AgentOrchestrator,
-    STATUS_AWAITING_APPROVAL,
-    STATUS_MAX_ITERATIONS_REACHED,
-)
-
-from src.data_client import (
-    create_massive_client,
-    fetch_stock_data as _massive_fetch_stock_data,
-)
+from src.agent import PortfolioAgent
+from src.agent_models import AgentResult
+from src.data_client import create_massive_client, fetch_stock_data
 from src.event_store import create_event_store
-from src.llm_validation import (
-    extract_valid_tickers,
-)
+from src.llm_service import LLMService, create_openrouter_client
 from src.logging_config import set_log_context
-from src.plots import (
-    plot_history,
-    plot_portfolio_allocation,
-    plot_portfolio_returns,
-)
+from src.plots import plot_history, plot_portfolio_allocation, plot_portfolio_returns
+from src.portfolio import allocate_portfolio_by_weights, normalize_weights
+from src.portfolio_display_summary import PortfolioDisplaySummary
 from src.summaries import (
     build_portfolio_returns_series,
     summarize_portfolio_financials,
     summarize_portfolio_stats,
 )
-from src.llm_service import LLMService
-from src.portfolio_display_summary import PortfolioDisplaySummary
 from src.tickr_data_manager import TickrDataManager
 from src.tickr_summary_manager import TickrSummaryManager
 
-
 logger = logging.getLogger(__name__)
-MODEL_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+(?::[a-zA-Z0-9_.-]+)?$")
+
+
 DEFAULT_STARTER_PROMPTS = [
     "Build a long-term growth portfolio focused on AI and cloud leaders.",
     "Create a dividend-oriented portfolio for steady income.",
@@ -70,178 +50,93 @@ def _get_session_id() -> str:
     return session_id
 
 
-def _is_model_name_valid(model_name: str) -> bool:
-    return bool(MODEL_NAME_PATTERN.match(model_name))
-
-
-def _create_openrouter_completion(
-    *,
-    client: OpenAI,
-    request_name: str,
-    model: str,
-    max_tokens: int,
-    temperature: float,
-    messages: List[Dict[str, str]],
-    session_id: Optional[str] = None,
-    run_id: Optional[str] = None,
-) -> tuple[Any, Optional[int]]:
-    model_valid = _is_model_name_valid(model)
-    logger.info(
-        "[session=%s run=%s] [%s] OpenRouter request start model=%s valid_model_format=%s max_tokens=%s temperature=%s messages=%s",
-        session_id or "n/a",
-        run_id or "n/a",
-        request_name,
-        model,
-        model_valid,
-        max_tokens,
-        temperature,
-        len(messages),
-    )
-    if not model_valid:
-        logger.warning(
-            "[session=%s run=%s] [%s] Model name may be malformed: %s",
-            session_id or "n/a",
-            run_id or "n/a",
-            request_name,
-            model,
-        )
-
-    try:
-        raw_client = client.chat.completions.with_raw_response
-        raw_response = raw_client.create(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=messages,
-        )
-        status_code = getattr(raw_response, "status_code", None)
-        logger.info(
-            "[session=%s run=%s] [%s] OpenRouter response received status_code=%s",
-            session_id or "n/a",
-            run_id or "n/a",
-            request_name,
-            status_code,
-        )
-        return raw_response.parse(), status_code
-    except AttributeError:
-        response = client.chat.completions.create(
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            messages=messages,
-        )
-        logger.info(
-            "[session=%s run=%s] [%s] OpenRouter response received status_code=unavailable",
-            session_id or "n/a",
-            run_id or "n/a",
-            request_name,
-        )
-        return response, None
-    except Exception:
-        logger.exception(
-            "[session=%s run=%s] [%s] OpenRouter request failed",
-            session_id or "n/a",
-            run_id or "n/a",
-            request_name,
-        )
-        raise
-
-
-def create_openrouter_client(
-    api_key: str,
-    base_url: str,
-    headers: Optional[Dict[str, str]] = None,
-) -> OpenAI:
-    """Create an OpenRouter client using the OpenAI-compatible API."""
-    return OpenAI(api_key=api_key, base_url=base_url, default_headers=headers or {})
-
-
-def build_prompt(template: str, user_input: str, **kwargs: object) -> str:
-    """Build the LLM prompt from a template."""
-    return template.format(user_input=user_input, **kwargs)
-
-
-def parse_tickers(text: str, delimiter: str) -> List[str]:
-    """Parse a delimited ticker list into clean symbols."""
-    return extract_valid_tickers(text, delimiter=delimiter)
-
-
-def fetch_stock_data(
-    ticker: str,
-    history_period: str,
-    financials_period: str,
-    massive_client: Any = None,
-) -> Dict[str, Any]:
-    """Fetch stock data from Massive.com (formerly Polygon.io).
-
-    Parameters
-    ----------
-    ticker:
-        US equity symbol.
-    history_period:
-        Lookback period string (e.g. ``"1y"``).
-    financials_period:
-        ``"annual"`` or ``"quarterly"``.
-    massive_client:
-        An authenticated ``massive.RESTClient``.  If *None*, the caller must
-        have already ensured a client is available (used only in tests).
-    """
-    if massive_client is None:
-        raise ValueError("A Massive.com RESTClient must be provided.")
-    return _massive_fetch_stock_data(
-        client=massive_client,
-        ticker=ticker,
-        history_period=history_period,
-        financials_period=financials_period,
-    )
-
-
-def _extract_message_text(response: Any) -> str:
-    """Extract text content from an OpenAI-compatible response."""
-    try:
-        return response.choices[0].message.content
-    except AttributeError:
-        return response["choices"][0]["message"]["content"]
-
-
-def generate_tickers(
-    client: OpenAI,
-    prompt: str,
-    system_prompt: str,
-    model: str,
-    max_tokens: int,
-    temperature: float,
-    delimiter: str,
-    session_id: Optional[str] = None,
-    run_id: Optional[str] = None,
-) -> tuple[List[str], str]:
-    """Generate ticker suggestions from the LLM and return parsed + raw output."""
-    response, _status_code = _create_openrouter_completion(
-        client=client,
-        request_name="ticker_generation",
-        model=model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        session_id=session_id,
-        run_id=run_id,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    raw_output = _extract_message_text(response)
-    return parse_tickers(raw_output, delimiter=delimiter), raw_output
-
-
-def limit_tickers(tickers: List[str], max_tickers: int) -> List[str]:
-    """Limit the number of tickers returned."""
-    if max_tickers <= 0:
-        return []
-    return tickers[:max_tickers]
-
-
 def _df_to_csv_bytes(df: pd.DataFrame) -> bytes:
     return df.to_csv().encode("utf-8")
+
+
+def _chat_avatar(role: str) -> Optional[str]:
+    if role == "assistant":
+        return "img/bot.png"
+    return None
+
+
+def _stream_once(content: str):
+    yield content
+
+
+def _push_chat_message(role: str, content: str, container) -> None:
+    st.session_state["messages"].append({"role": role, "content": content})
+    with container:
+        with st.chat_message(role, avatar=_chat_avatar(role)):
+            if role == "assistant" and hasattr(st, "write_stream"):
+                st.write_stream(_stream_once(content))
+            else:
+                st.markdown(content)
+
+
+def _strip_json_block(text: str) -> str:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return text.strip()
+    return (text[:start] + text[end + 1 :]).strip()
+
+
+def _clean_reasoning_text(reasoning_text: str) -> str:
+    cleaned = _strip_json_block(reasoning_text)
+    # Remove any leftover structured-key mentions from text output.
+    cleaned = re.sub(r'"?(tickers|weights|allocation)"?\s*:\s*[^\n]+', "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
+def _build_allocation_table(tickers: list[str], weights: dict[str, float], allocation: dict[str, float]) -> pd.DataFrame:
+    rows = []
+    for ticker in tickers:
+        rows.append(
+            {
+                "Ticker": ticker,
+                "Weight": float(weights.get(ticker, 0.0)),
+                "Allocation": float(allocation.get(ticker, 0.0)),
+            }
+        )
+    
+    return pd.DataFrame(rows)
+
+
+def _format_suggestions_text(suggestions: dict[str, Any], weights: dict[str, float]) -> str:
+    if suggestions:
+        return PortfolioDisplaySummary().format_suggestions(suggestions)
+    if weights:
+        return PortfolioDisplaySummary().format_suggestions({"add": [], "remove": [], "reweight": weights})
+    return "No suggested changes."
+
+
+def _render_current_portfolio_sections(container, ui: Dict[str, Any]) -> None:
+    allocation_df = st.session_state.get("allocation_table_df")
+    if isinstance(allocation_df, pd.DataFrame) and not allocation_df.empty:
+        with container:
+            st.subheader(ui.get("current_portfolio_table_label", "Current Portfolio Allocation"))
+            if hasattr(st, "column_config"):
+                st.dataframe(
+                    allocation_df,
+                    column_config={
+                        "Weight": st.column_config.NumberColumn(
+                            "Weight (%)",
+                            help="Weight of the ticker in the portfolio",
+                            format="percent",
+                        )
+                    },
+                    width="stretch",
+                    hide_index=True,
+                )
+            else:
+                st.dataframe(allocation_df, width="stretch", hide_index=True)
+
+            st.subheader(ui.get("analysis_heading", "Portfolio Analysis"))
+            st.write(st.session_state.get("analysis_text", ""))
+
+            st.subheader(ui.get("suggestions_heading", "Suggested portfolio changes"))
+            st.write(st.session_state.get("suggestions_text", "No suggested changes."))
 
 
 def _init_state(default_user_input: str, default_portfolio_size: float, chat_intro: str) -> None:
@@ -257,72 +152,79 @@ def _init_state(default_user_input: str, default_portfolio_size: float, chat_int
     state.setdefault("portfolio_financials", {})
     state.setdefault("portfolio_series", pd.Series(dtype=float))
     state.setdefault("analysis_text", "")
-    state.setdefault("orchestrator_state", None)
-    state.setdefault("agent_iteration", 0)
+    state.setdefault("reasoning_display_text", "")
+    state.setdefault("suggestions_text", "")
+    state.setdefault("allocation_table_df", pd.DataFrame())
     state.setdefault("pending_suggestions", {})
-    state.setdefault("orchestrator", None)
     state.setdefault("recommended_tickers", [])
     state.setdefault("excluded_tickers", [])
     state.setdefault("tickr_data_manager", TickrDataManager())
     state.setdefault("tickr_summary_manager", TickrSummaryManager())
     state.setdefault("event_store", None)
+    state.setdefault("portfolio_agent", None)
+    state.setdefault("latest_result", AgentResult())
+    state.setdefault("is_processing", False)
+    state.setdefault("pending_prompt", None)
+    state.setdefault("awaiting_user_decision", False)
 
 
-def _chat_avatar(role: str) -> Optional[str]:
-    if role == "assistant":
-        return "img/bot.png"
-    return None
+def _apply_agent_result(result: AgentResult, financial_metrics: list[str]) -> None:
+    st.session_state["tickers"] = result.tickers
+    st.session_state["data_by_ticker"] = result.data_by_ticker
+    weights = dict(result.weights)
+    if not weights and result.allocation:
+        total = float(sum(result.allocation.values()))
+        if total > 0:
+            weights = {ticker: float(amount) / total for ticker, amount in result.allocation.items()}
 
+    tickers = list(result.tickers)
+    normalized_weights = normalize_weights(weights, tickers)
 
-def _push_chat_message(role: str, content: str, container) -> None:
-    st.session_state["messages"].append({"role": role, "content": content})
-    with container:
-        with st.chat_message(role, avatar=_chat_avatar(role)):
-            st.markdown(content)
+    portfolio_size = float(st.session_state.get("portfolio_size", 0.0))
+    allocation = dict(result.allocation)
+    total_allocation = float(sum(allocation.values())) if allocation else 0.0
+    has_valid_allocation = allocation and portfolio_size > 0 and abs(total_allocation - portfolio_size) <= max(1.0, portfolio_size * 0.01)
+    if not has_valid_allocation:
+        allocation = allocate_portfolio_by_weights(
+            tickers,
+            portfolio_size,
+            normalized_weights,
+        )
 
+    st.session_state["weights"] = normalized_weights
+    st.session_state["portfolio_allocation"] = allocation
+    st.session_state["analysis_text"] = result.analysis_text
+    st.session_state["pending_suggestions"] = result.suggestions
+    st.session_state["latest_result"] = result
+    st.session_state["suggestions_text"] = _format_suggestions_text(result.suggestions, normalized_weights)
+    st.session_state["allocation_table_df"] = _build_allocation_table(tickers, normalized_weights, allocation)
 
-def _apply_orchestrator_state(orchestrator_state: Any) -> None:
-    creator_result = orchestrator_state.creator_result
-    evaluator_result = orchestrator_state.evaluator_result
-
-    st.session_state["tickers"] = creator_result.tickers
-    st.session_state["data_by_ticker"] = creator_result.data_by_ticker
-    st.session_state["weights"] = creator_result.weights
-    st.session_state["portfolio_allocation"] = creator_result.allocation
-    st.session_state["analysis_text"] = evaluator_result.analysis_text
-    st.session_state["pending_suggestions"] = orchestrator_state.pending_suggestions
-    st.session_state["agent_iteration"] = orchestrator_state.iteration
-    st.session_state["recommended_tickers"] = list(orchestrator_state.recommended_tickers)
-    st.session_state["excluded_tickers"] = list(orchestrator_state.excluded_tickers)
+    reasoning_text = str(result.metadata.get("reasoning_text", "")).strip()
+    st.session_state["reasoning_display_text"] = _clean_reasoning_text(reasoning_text) if reasoning_text else ""
 
     portfolio_series = build_portfolio_returns_series(
-        {ticker: data["history"] for ticker, data in creator_result.data_by_ticker.items()},
-        creator_result.weights,
+        {ticker: data["history"] for ticker, data in result.data_by_ticker.items()},
+        normalized_weights,
     )
     st.session_state["portfolio_series"] = portfolio_series
     st.session_state["portfolio_stats"] = summarize_portfolio_stats(portfolio_series)
     st.session_state["portfolio_financials"] = summarize_portfolio_financials(
-        {ticker: data["financials"] for ticker, data in creator_result.data_by_ticker.items()},
-        creator_result.weights,
-        st.session_state.get("_financial_metrics", []),
+        {ticker: data["financials"] for ticker, data in result.data_by_ticker.items()},
+        normalized_weights,
+        financial_metrics,
     )
 
 
 def run_dashboard(config: Dict[str, Any]) -> None:
-    """Run the Streamlit dashboard."""
     st.title(config["app"]["title"])
 
     ui = config["ui"]
     dashboard = config["dashboard"]
     openrouter_cfg = config["openrouter"]
     stocks_cfg = config["stocks"]
-    st.session_state["_financial_metrics"] = stocks_cfg.get("financials_metrics", [])
+    financial_metrics = stocks_cfg.get("financials_metrics", [])
 
-    _init_state(
-        dashboard["default_user_input"],
-        dashboard["default_portfolio_size"],
-        ui["chat_intro"],
-    )
+    _init_state(dashboard["default_user_input"], dashboard["default_portfolio_size"], ui["chat_intro"])
     session_id = _get_session_id()
     set_log_context(session_id=session_id)
     if st.session_state.get("event_store") is None:
@@ -338,19 +240,16 @@ def run_dashboard(config: Dict[str, Any]) -> None:
 
     model_choices = openrouter_cfg.get("model_choices", [])
     if model_choices:
-        model_labels = openrouter_cfg.get("model_labels", {})
-        default_models = openrouter_cfg.get("default_models", {})
-        st.sidebar.subheader(ui.get("model_selection_header", "Model Selection"))
-        for task_key in ("ticker", "weights", "analysis", "evaluator"):
-            label = model_labels.get(task_key, task_key.title())
-            default = default_models.get(task_key, model_choices[0])
-            idx = model_choices.index(default) if default in model_choices else 0
-            st.sidebar.selectbox(
-                label,
-                options=model_choices,
-                index=idx,
-                key=f"model_{task_key}",
-            )
+        agent_cfg = config.setdefault("agent", {})
+        current_model = agent_cfg.get("model", model_choices[0])
+        idx = model_choices.index(current_model) if current_model in model_choices else 0
+        selected_model = st.sidebar.selectbox(
+            "Agent Model",
+            options=model_choices,
+            index=idx,
+            key="model_agent",
+        )
+        config.setdefault("agent", {})["model"] = selected_model
 
     api_cfg = openrouter_cfg["api"]
     api_key = api_cfg.get("api_key")
@@ -358,19 +257,18 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         st.sidebar.error(ui["missing_api_key"])
         return
 
-    tabs = st.tabs(
-        [
-            ui["chat_tab_label"],
-            ui["history_tab_label"],
-            ui["portfolio_tab_label"],
-        ]
-    )
+    massive_cfg = config.get("massive", {}).get("api", {})
+    if not massive_cfg.get("api_key"):
+        st.sidebar.error(ui.get("missing_massive_key", "Missing Massive.com API key."))
+        return
+
+    tabs = st.tabs([ui["chat_tab_label"], ui["history_tab_label"], ui["portfolio_tab_label"]])
     chat_tab, history_tab, portfolio_tab = tabs
 
     with chat_tab:
         starter_prompt_input = None
         starter_prompts = ui.get("starter_prompts", DEFAULT_STARTER_PROMPTS)
-        if starter_prompts:
+        if starter_prompts and not st.session_state.get("is_processing", False):
             st.caption(ui.get("starter_prompts_label", "Try one:"))
             prompt_columns = st.columns(len(starter_prompts))
             for idx, column in enumerate(prompt_columns):
@@ -382,40 +280,23 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             with st.chat_message(message["role"], avatar=_chat_avatar(message["role"])):
                 st.markdown(message["content"])
 
-        typed_prompt_input = st.chat_input(ui["chat_placeholder"])
+        _render_current_portfolio_sections(chat_tab, ui)
 
-    prompt_input = typed_prompt_input or starter_prompt_input
+        if st.session_state.get("is_processing", False):
+            typed_prompt_input = None
+        else:
+            typed_prompt_input = st.chat_input(ui["chat_placeholder"])
+
+    if typed_prompt_input or starter_prompt_input:
+        st.session_state["pending_prompt"] = typed_prompt_input or starter_prompt_input
+        st.session_state["is_processing"] = True
+
+    prompt_input = st.session_state.get("pending_prompt") if st.session_state.get("is_processing", False) else None
 
     if prompt_input:
-        session_id = _get_session_id()
         run_id = _new_correlation_id()
         set_log_context(session_id=session_id, run_id=run_id)
         _push_chat_message("user", prompt_input, chat_tab)
-
-        progress_holder: Dict[str, Any] = {}
-        progress_start_text = ui.get("fetch_progress_start", "Fetching ticker data...")
-        progress_ticker_template = ui.get(
-            "fetch_progress_ticker", "Fetching {ticker} ({current}/{total})"
-        )
-
-        def _on_tickers_ready(tickers: List[str]) -> None:
-            _push_chat_message(
-                "assistant",
-                ui["ticker_reply_template"].format(tickers=", ".join(tickers)),
-                chat_tab,
-            )
-            with chat_tab:
-                progress_holder["bar"] = st.progress(0.0, text=progress_start_text)
-
-        def _on_fetch_progress(current: int, total: int, ticker: str) -> None:
-            bar = progress_holder.get("bar")
-            if bar is not None and total > 0:
-                bar.progress(
-                    current / total,
-                    text=progress_ticker_template.format(
-                        ticker=ticker, current=current + 1, total=total,
-                    ),
-                )
 
         client = create_openrouter_client(
             api_key=api_key,
@@ -430,38 +311,53 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             event_store=st.session_state["event_store"],
             schema_version=int(config.get("event_store", {}).get("schema_version", 1)),
         )
-        if model_choices:
-            for task_key in ("ticker", "weights", "analysis", "evaluator"):
-                selected = st.session_state.get(f"model_{task_key}")
-                if selected:
-                    config["openrouter"]["default_models"][task_key] = selected
-        display_summary = PortfolioDisplaySummary()
-        creator_agent = PortfolioCreatorAgent(
+        agent = PortfolioAgent(
             llm_service=llm_service,
             config=config,
-            massive_client_factory=create_massive_client,
-            stock_data_fetcher=fetch_stock_data,
+            event_store=st.session_state["event_store"],
             tickr_data_manager=st.session_state["tickr_data_manager"],
             tickr_summary_manager=st.session_state["tickr_summary_manager"],
+            massive_client_factory=create_massive_client,
+            stock_data_fetcher=fetch_stock_data,
         )
-        evaluator_agent = PortfolioEvaluatorAgent(llm_service=llm_service, config=config)
-        orchestrator = AgentOrchestrator(
-            creator_agent=creator_agent,
-            evaluator_agent=evaluator_agent,
-            max_iterations=config.get("agents", {}).get("max_iterations", 3),
-            event_store=st.session_state["event_store"],
-            schema_version=int(config.get("event_store", {}).get("schema_version", 1)),
-        )
-        st.session_state["orchestrator"] = orchestrator
+        st.session_state["portfolio_agent"] = agent
+
+        progress_holder: Dict[str, Any] = {}
+        progress_start_text = ui.get("fetch_progress_start", "Fetching ticker data...")
+        progress_ticker_template = ui.get("fetch_progress_ticker", "Fetching {ticker} ({current}/{total})")
+        weights_progress_text = ui.get("weights_progress_text", "Computing portfolio weights...")
+        analysis_progress_text = ui.get("analysis_progress_text", "Analyzing portfolio...")
+
+        def _on_fetch_progress(current: int, total: int, ticker: str) -> None:
+            bar = progress_holder.get("bar")
+            if bar is None:
+                return
+            if total > 0:
+                bar.progress(
+                    min(((current + 1) / total) * 0.7, 0.7),
+                    text=progress_ticker_template.format(ticker=ticker, current=current + 1, total=total),
+                )
+
+        def _on_agent_step(step: str) -> None:
+            bar = progress_holder.get("bar")
+            if bar is None:
+                return
+            if step == "allocate_weights":
+                bar.progress(0.85, text=weights_progress_text)
+            elif step == "analyze_portfolio":
+                bar.progress(0.95, text=analysis_progress_text)
 
         try:
-            orchestrator_state = orchestrator.start(
+            with chat_tab:
+                progress_holder["bar"] = st.progress(0.0, text=progress_start_text)
+            result = agent.run(
                 user_input=prompt_input,
                 portfolio_size=st.session_state["portfolio_size"],
+                excluded_tickers=list(st.session_state.get("excluded_tickers", [])),
                 session_id=session_id,
                 run_id=run_id,
-                ticker_callback=_on_tickers_ready,
                 progress_callback=_on_fetch_progress,
+                status_callback=_on_agent_step,
             )
             bar = progress_holder.get("bar")
             if bar is not None:
@@ -471,136 +367,55 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             bar = progress_holder.get("bar")
             if bar is not None:
                 bar.empty()
-            error_text = str(exc)
-            if "No valid ticker symbols" in error_text:
-                _push_chat_message("assistant", ui["ticker_validation_error"], chat_tab)
-            elif "Rate-limited while fetching historical price data for:" in error_text:
-                with chat_tab:
-                    st.warning(error_text)
-                _push_chat_message("assistant", error_text, chat_tab)
-            elif "Could not fetch historical price data for any suggested ticker" in error_text:
-                _push_chat_message(
-                    "assistant",
-                    ui.get(
-                        "history_fetch_all_failed",
-                        "Could not fetch historical price data for any suggested ticker.",
-                    ),
-                    chat_tab,
-                )
-            else:
-                _push_chat_message("assistant", error_text, chat_tab)
+            st.session_state["pending_prompt"] = None
+            st.session_state["is_processing"] = False
+            _push_chat_message("assistant", str(exc), chat_tab)
             return
 
-        st.session_state["orchestrator_state"] = orchestrator_state
-        _apply_orchestrator_state(orchestrator_state)
-
-        creator_result = orchestrator_state.creator_result
-        warning_templates = {
-            "rate_limited": ui.get(
-                "history_fetch_warning_rate_limited",
-                "Rate-limited while fetching historical price data for: {tickers}. Please retry shortly.",
-            ),
-            "not_found": ui.get(
-                "history_fetch_warning_not_found",
-                "Ticker not found for historical price data: {tickers}. These were skipped.",
-            ),
-            "empty_data": ui.get(
-                "history_fetch_warning_empty_data",
-                ui.get("history_fetch_warning", "No historical data was found for: {tickers}"),
-            ),
-            "unexpected_error": ui.get(
-                "history_fetch_warning_unexpected_error",
-                "Unexpected error while fetching historical price data for: {tickers}. These were skipped.",
-            ),
-        }
-        failed_history_by_status = creator_result.metadata.get("failed_history_by_status", {})
-        for status, failed_tickers in failed_history_by_status.items():
-            if not failed_tickers:
-                continue
-            warning_message = warning_templates.get(status, warning_templates["unexpected_error"]).format(
-                tickers=", ".join(failed_tickers)
-            )
-            with chat_tab:
-                st.warning(warning_message)
-            _push_chat_message("assistant", warning_message, chat_tab)
-
-        if creator_result.metadata.get("weights_parse_failed"):
-            _push_chat_message("assistant", ui["weights_fallback_message"], chat_tab)
-
-        dropped = creator_result.metadata.get("weights_dropped", [])
-        if dropped:
-            _push_chat_message(
-                "assistant",
-                ui["weights_tickers_dropped"].format(dropped=", ".join(dropped)),
-                chat_tab,
-            )
-
-        if orchestrator_state.evaluator_result.analysis_text:
-            _push_chat_message("assistant", orchestrator_state.evaluator_result.analysis_text, chat_tab)
-
-        if orchestrator_state.pending_suggestions:
-            _push_chat_message(
-                "assistant",
-                display_summary.format_suggestions(orchestrator_state.pending_suggestions),
-                chat_tab,
-            )
-        else:
-            _push_chat_message("assistant", ui.get("evaluator_no_changes", "No further portfolio changes suggested."), chat_tab)
-
+        st.session_state["pending_prompt"] = None
+        st.session_state["is_processing"] = False
+        _apply_agent_result(result, financial_metrics)
+        st.session_state["awaiting_user_decision"] = bool(result.weights or result.suggestions)
+        if result.tickers:
+            _push_chat_message("assistant", ui["ticker_reply_template"].format(tickers=", ".join(result.tickers)), chat_tab)
+        _render_current_portfolio_sections(chat_tab, ui)
         _push_chat_message("assistant", ui["post_analysis_nudge"], chat_tab)
-        portfolio_link_message = ui.get("portfolio_tab_link")
-        if portfolio_link_message:
-            _push_chat_message("assistant", portfolio_link_message, chat_tab)
+        st.rerun()
 
-    orchestrator_state = st.session_state.get("orchestrator_state")
-    orchestrator = st.session_state.get("orchestrator")
-    if orchestrator_state and orchestrator and orchestrator_state.status == STATUS_AWAITING_APPROVAL:
-        if hasattr(st, "button"):
-            with chat_tab:
-                st.markdown(
-                    ui.get("evaluator_iter_label", "Iteration {current} of {max_iterations}").format(
-                        current=orchestrator_state.iteration,
-                        max_iterations=config.get("agents", {}).get("max_iterations", 3),
-                    )
-                )
-                accept = st.button(ui.get("evaluator_accept_button", "Accept Changes"), key="accept_changes")
-                reject = st.button(ui.get("evaluator_reject_button", "Keep Current Portfolio"), key="reject_changes")
-            if accept:
-                updated_state = orchestrator.apply_changes(
-                    orchestrator_state,
-                    session_id=_get_session_id(),
-                    run_id=_new_correlation_id(),
-                )
-                st.session_state["orchestrator_state"] = updated_state
-                _apply_orchestrator_state(updated_state)
-                if updated_state.evaluator_result.analysis_text:
-                    st.session_state["messages"].append(
-                        {"role": "assistant", "content": updated_state.evaluator_result.analysis_text}
-                    )
-                if updated_state.pending_suggestions:
-                    st.session_state["messages"].append(
-                        {"role": "assistant", "content": PortfolioDisplaySummary().format_suggestions(updated_state.pending_suggestions)}
-                    )
-                if updated_state.status == STATUS_MAX_ITERATIONS_REACHED:
-                    st.session_state["messages"].append(
-                        {"role": "assistant", "content": ui.get("evaluator_max_reached", "Reached max refinement iterations. Keeping current portfolio.")}
-                    )
-                st.rerun()
-            elif reject:
-                final_state = orchestrator.reject_changes(
-                    orchestrator_state,
-                    session_id=_get_session_id(),
-                    run_id=_new_correlation_id(),
-                )
-                st.session_state["orchestrator_state"] = final_state
+    agent = st.session_state.get("portfolio_agent")
+    pending_suggestions = st.session_state.get("pending_suggestions", {})
+    awaiting_user_decision = bool(st.session_state.get("awaiting_user_decision", False))
+    if agent and awaiting_user_decision:
+        with chat_tab:
+            if not pending_suggestions:
+                st.caption("Review the proposed portfolio and choose whether to apply further changes.")
+            accept = st.button(ui.get("evaluator_accept_button", "Accept Changes"), key="accept_changes")
+            reject = st.button(ui.get("evaluator_reject_button", "Keep Current Portfolio"), key="reject_changes")
+
+        if accept:
+            updated = agent.refine(
+                feedback="Apply the suggested changes and return the updated portfolio.",
+                session_id=session_id,
+                run_id=_new_correlation_id(),
+            )
+            _apply_agent_result(updated, financial_metrics)
+            st.session_state["awaiting_user_decision"] = bool(updated.suggestions)
+            if updated.analysis_text:
                 st.session_state["messages"].append(
-                    {"role": "assistant", "content": ui.get("evaluator_rejected", "Keeping current portfolio without changes.")}
+                    {"role": "assistant", "content": "Portfolio updated. Review the latest analysis and suggestions below."}
                 )
-                st.rerun()
+            st.rerun()
+
+        if reject:
+            st.session_state["pending_suggestions"] = {}
+            st.session_state["awaiting_user_decision"] = False
+            st.session_state["messages"].append(
+                {"role": "assistant", "content": ui.get("evaluator_rejected", "Keeping current portfolio without changes.")}
+            )
+            st.rerun()
 
     tickers = st.session_state.get("tickers", [])
     st.sidebar.write(ui["suggested_label"], tickers)
-
     data_by_ticker = st.session_state.get("data_by_ticker", {})
 
     with history_tab:
@@ -629,20 +444,11 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             st.info(ui["portfolio_empty_message"])
         else:
             st.write(PortfolioDisplaySummary().format_portfolio_header(tickers))
-            st.write(
-                f"{ui.get('recommended_label', 'Recommended Tickers:')} "
-                f"{st.session_state.get('recommended_tickers', [])}"
-            )
-            st.write(
-                f"{ui.get('excluded_label', 'Tickers to Exclude:')} "
-                f"{st.session_state.get('excluded_tickers', [])}"
-            )
+            _render_current_portfolio_sections(portfolio_tab, ui)
             allocation = st.session_state.get("portfolio_allocation", {})
             if allocation:
                 st.subheader(ui["portfolio_output_label"])
-                alloc_fig = plot_portfolio_allocation(
-                    allocation, title=ui["portfolio_output_label"],
-                )
+                alloc_fig = plot_portfolio_allocation(allocation, title=ui["portfolio_output_label"])
                 if alloc_fig is not None:
                     st.plotly_chart(alloc_fig, width="stretch")
 
@@ -650,13 +456,15 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             if stats:
                 st.subheader(ui["portfolio_stats_label"])
                 stats_df = pd.DataFrame(
-                    [{
-                        "Min": f"{stats.get('min', 0):.2f}",
-                        "Max": f"{stats.get('max', 0):.2f}",
-                        "Median": f"{stats.get('median', 0):.2f}",
-                        "Current": f"{stats.get('current', 0):.2f}",
-                        "1Y Return": f"{stats.get('return_1y', 0):.2%}",
-                    }]
+                    [
+                        {
+                            "Min": f"{stats.get('min', 0):.2f}",
+                            "Max": f"{stats.get('max', 0):.2f}",
+                            "Median": f"{stats.get('median', 0):.2f}",
+                            "Current": f"{stats.get('current', 0):.2f}",
+                            "1Y Return": f"{stats.get('return_1y', 0):.2%}",
+                        }
+                    ]
                 )
                 st.dataframe(stats_df, width="stretch", hide_index=True)
 
@@ -664,15 +472,6 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             returns_fig = plot_portfolio_returns(portfolio_series, ui["portfolio_returns_label"])
             if returns_fig is not None:
                 st.plotly_chart(returns_fig, width="stretch")
-
-            portfolio_financials = st.session_state.get("portfolio_financials", {})
-            if portfolio_financials:
-                st.subheader(ui["portfolio_financials_label"])
-                st.dataframe(
-                    pd.DataFrame([portfolio_financials]),
-                    width="stretch",
-                    hide_index=True,
-                )
 
             pending_suggestions = st.session_state.get("pending_suggestions", {})
             if pending_suggestions:

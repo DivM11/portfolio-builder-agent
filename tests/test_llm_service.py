@@ -12,7 +12,11 @@ class DummyRawResponse:
 
 
 class DummyWithRaw:
+    def __init__(self):
+        self.last_kwargs = None
+
     def create(self, **_kwargs):
+        self.last_kwargs = dict(_kwargs)
         return DummyRawResponse()
 
 
@@ -95,3 +99,41 @@ def test_llm_service_complete_fallback_without_raw_response():
 def test_model_name_validation():
     assert LLMService.is_model_name_valid("anthropic/claude-3.5-haiku") is True
     assert LLMService.is_model_name_valid("invalid model") is False
+
+
+def test_complete_with_tools_passes_reasoning_extra_body_when_configured():
+    client = DummyClient()
+    service = LLMService(client)
+
+    service.complete_with_tools(
+        request_name="tooling",
+        model="anthropic/claude-3.5-haiku",
+        max_tokens=20,
+        temperature=0.2,
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        reasoning={"effort": "high", "exclude": False},
+    )
+
+    kwargs = client.chat.completions.with_raw_response.last_kwargs
+    assert kwargs is not None
+    assert kwargs.get("extra_body") == {"reasoning": {"effort": "high", "exclude": False}}
+
+
+def test_complete_with_tools_passes_response_format_when_configured():
+    client = DummyClient()
+    service = LLMService(client)
+
+    service.complete_with_tools(
+        request_name="tooling",
+        model="anthropic/claude-3.5-haiku",
+        max_tokens=20,
+        temperature=0.2,
+        messages=[{"role": "user", "content": "hi"}],
+        tools=[],
+        response_format={"type": "json_object"},
+    )
+
+    kwargs = client.chat.completions.with_raw_response.last_kwargs
+    assert kwargs is not None
+    assert kwargs.get("response_format") == {"type": "json_object"}
