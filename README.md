@@ -1,7 +1,7 @@
-# YFinance Agent
+# Portfolio Builder Agent
 
 ## Overview
-The YFinance Agent is a Python-based application designed to help users build personalized finance portfolios using US equities. The application leverages the following technologies:
+The Portfolio Builder Agent is a Python-based application designed to help users build personalized finance portfolios using US equities. The application leverages the following technologies:
 
 - **Streamlit**: For building an interactive and user-friendly dashboard.
 - **Massive.com (formerly Polygon.io)**: For retrieving stock market data (OHLCV prices, SEC-sourced financial statements).

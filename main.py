@@ -1,5 +1,5 @@
 """
-Main entry point for the YFinance Agent application.
+Main entry point for the Portfolio Builder Agent application.
 """
 
 import streamlit as st
