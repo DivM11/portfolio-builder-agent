@@ -1,53 +1,29 @@
 # Portfolio Builder Agent
 
 ## Overview
-The Portfolio Builder Agent is a Python-based application designed to help users build personalized finance portfolios using US equities. The application leverages the following technologies:
 
-- **Streamlit**: For building an interactive and user-friendly dashboard.
-- **Massive.com (formerly Polygon.io)**: For retrieving stock market data (OHLCV prices, SEC-sourced financial statements).
-- **OpenRouter**: For semantic matching and LLM inference to understand user input and provide intelligent analysis.
-- **Custom Model Support**: Allows integration of custom models for advanced analysis.
+A Streamlit app that uses a **tool-calling LLM agent** to build personalized US equity portfolios. Users describe investment goals in natural language; the agent fetches market data via [Massive.com](https://massive.com), runs analysis through [OpenRouter](https://openrouter.ai)-hosted models, and returns a weighted portfolio with actionable suggestions.
 
 ## Features
-1. **User Input Handling**: Accepts natural language input to understand user preferences for portfolio creation.
-2. **Stock Data Retrieval**: Fetches financial data from Massive.com, including historical prices and financial statements (income statement, balance sheet, cash flow).
-3. **Resilient Ticker Fetching**: Shows in-chat progress while fetching each ticker and warns when historical data is unavailable for specific symbols.
-4. **Model Selection**: Users can pick the active single-agent model from the sidebar. Available models are configured in [config.yml](config.yml).
-5. **Filtering and Analysis**: Applies user-defined filters and performs backtesting and forecasting.
-6. **Interactive Dashboard**: Uses Chat, Historical Prices, and Portfolio tabs, with a post-analysis nudge to open Portfolio results.
+
+- **Natural-language portfolio creation** — describe preferences and constraints in plain English.
+- **Live market data** — historical prices fetched per ticker with in-chat progress and graceful fallbacks for missing symbols.
+- **Switchable LLM models** — choose the active model from the sidebar; options configured in [config.yml](config.yml).
+- **Backtesting** — Applies filters and quantitative analysis to the generated portfolio.
+- **Tabbed dashboard** — Chat, Historical Prices, and Portfolio views with a post-analysis prompt to review results.
 
 ## Agent Design
 
-### High-Level Design
-- The app uses a **single tool-calling agent** (`PortfolioAgent`) that runs an iterative tool loop.
-- The agent calls tools in sequence to build a result:
-  1. `generate_tickers`
-  2. `fetch_ticker_data`
-  3. `build_summary`
-  4. `allocate_weights`
-  5. `analyze_portfolio`
-- The final response is parsed into a structured `AgentResult` with keys:
-  - `tickers`
-  - `weights`
-  - `allocation`
-  - `analysis_text`
-  - `suggestions`
+A single `PortfolioAgent` runs an iterative **tool loop**, calling five tools in sequence:
 
-### Low-Level Design
-- **Tool-loop execution:**
-  - `PortfolioAgent.run()` seeds context and executes `_run_loop()` until final JSON output is produced.
-  - Tool calls and results are persisted to the event store when enabled.
-- **State and caching model:**
-  - `TickrDataManager` caches per-ticker market payloads.
-  - `TickrSummaryManager` caches portfolio summaries by ticker set and cache version.
-- **Structured output path:**
-  - Final LLM output is normalized by `_parse_final_result()`.
-  - Missing weight/allocation fields are backfilled from tool state where possible.
-  - Suggestions are normalized into `{add, remove, reweight}` shape.
-- **Display formatting:**
-  - Dashboard presents current allocation as a shared dataframe in chat and portfolio tabs.
-  - Analysis and suggestions are shown as dedicated sections.
-  - Reasoning is available behind a collapsed panel by default.
+> `generate_tickers` → `fetch_ticker_data` → `build_summary` → `allocate_weights` → `analyze_portfolio`
+
+The final output is a structured `AgentResult` containing tickers, weights, allocation, analysis text, and suggestions (`add / remove / reweight`).
+
+**Key internals:**
+- **Tool-loop execution** — `run()` seeds context, iterates `_run_loop()`, and persists each tool call/result to an event store.
+- **Caching** — `TickrDataManager` caches per-ticker payloads; `TickrSummaryManager` caches summaries keyed by ticker set and cache version.
+- **Output normalization** — missing fields are backfilled from tool state; suggestions are coerced into a consistent shape.
 
 ## Project Structure
 ```
