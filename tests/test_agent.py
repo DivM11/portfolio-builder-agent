@@ -105,11 +105,9 @@ def test_parse_final_result_adds_fallback_reweight_suggestion_when_missing() -> 
     agent.tickr_data_manager.cache = {
         "AAPL": {
             "history": pd.DataFrame({"Close": [1.0, 1.1]}),
-            "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
         },
         "MSFT": {
             "history": pd.DataFrame({"Close": [1.0, 1.05]}),
-            "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
         },
     }
 
@@ -146,11 +144,9 @@ def test_execute_tool_analyze_builds_summary_if_missing() -> None:
     agent.tickr_data_manager.cache = {
         "AAPL": {
             "history": pd.DataFrame({"Close": [1.0, 1.1]}),
-            "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
         },
         "MSFT": {
             "history": pd.DataFrame({"Close": [1.0, 1.05]}),
-            "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
         },
     }
     context = AgentContext(user_input="u", portfolio_size=1000.0, session_id="s", run_id="r")
@@ -182,8 +178,8 @@ def test_agent_run_passes_reasoning_config_to_llm() -> None:
         stock_data_fetcher=lambda **_kwargs: {},
     )
     agent.tickr_data_manager.cache = {
-        "AAPL": {"history": pd.DataFrame({"Close": [1.0]}), "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"])} ,
-        "MSFT": {"history": pd.DataFrame({"Close": [1.0]}), "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"])} ,
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})} ,
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})} ,
     }
 
     agent.run(user_input="u", portfolio_size=1000.0)
@@ -200,11 +196,9 @@ def test_parse_final_result_accepts_legacy_changes_shape() -> None:
     agent.tickr_data_manager.cache = {
         "AAPL": {
             "history": pd.DataFrame({"Close": [1.0, 1.1]}),
-            "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
         },
         "MSFT": {
             "history": pd.DataFrame({"Close": [1.0, 1.05]}),
-            "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
         },
     }
     payload = {
@@ -232,8 +226,8 @@ def test_refine_preserves_previous_portfolio_when_output_partial() -> None:
         stock_data_fetcher=lambda **_kwargs: {},
     )
     agent.tickr_data_manager.cache = {
-        "AAPL": {"history": pd.DataFrame({"Close": [1.0]}), "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"])} ,
-        "MSFT": {"history": pd.DataFrame({"Close": [1.0]}), "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"])} ,
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})} ,
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})} ,
     }
 
     initial = agent.run(user_input="u", portfolio_size=1000.0)

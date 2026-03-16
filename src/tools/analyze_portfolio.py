@@ -6,7 +6,6 @@ from typing import Any
 
 from src.summaries import (
     build_portfolio_returns_series,
-    summarize_portfolio_financials,
     summarize_portfolio_stats,
 )
 from src.tickr_data_manager import TickrDataManager
@@ -58,12 +57,7 @@ def analyze_portfolio_tool(
         weights,
     )
     stats = summarize_portfolio_stats(returns_series)
-    financials = summarize_portfolio_financials(
-        {ticker: payload.get("financials") for ticker, payload in data_by_ticker.items()},
-        weights,
-    )
     return {
         "stats": stats,
-        "financials": financials,
         "returns_data_points": int(len(returns_series)),
     }

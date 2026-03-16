@@ -7,7 +7,7 @@ from src.tickr_data_manager import TickrDataManager
 
 def _payload(close_values, status="ok"):
     history = pd.DataFrame({"Close": close_values}) if close_values else pd.DataFrame()
-    return {"history": history, "financials": pd.DataFrame(), "history_status": status}
+    return {"history": history, "history_status": status}
 
 
 def test_tickr_data_manager_caches_and_fetches_missing_only():

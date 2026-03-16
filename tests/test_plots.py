@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from src.plots import plot_financials, plot_history, plot_portfolio_allocation
+from src.plots import plot_history, plot_portfolio_allocation
 
 
 def _history_df() -> pd.DataFrame:

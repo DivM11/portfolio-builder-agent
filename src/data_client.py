@@ -147,7 +147,7 @@ def fetch_stock_data(
     Returns
     -------
     dict
-        ``{"history": pd.DataFrame, "financials": pd.DataFrame, "history_status": str}``
+        ``{"history": pd.DataFrame, "history_status": str}``
     """
     history, history_status = fetch_price_history_with_status(
         client=client,
@@ -156,6 +156,5 @@ def fetch_stock_data(
     )
     return {
         "history": history,
-        "financials": pd.DataFrame(),
         "history_status": history_status,
     }

@@ -154,11 +154,9 @@ class DummyAgent:
             data_by_ticker={
                 "AAPL": {
                     "history": pd.DataFrame({"Close": [1.0, 1.1]}),
-                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
                 },
                 "MSFT": {
                     "history": pd.DataFrame({"Close": [1.0, 1.05]}),
-                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
                 },
             },
             weights={"AAPL": 0.5, "MSFT": 0.5},
@@ -180,11 +178,9 @@ class DummyAgentWithSuggestions(DummyAgent):
             data_by_ticker={
                 "AAPL": {
                     "history": pd.DataFrame({"Close": [1.0, 1.1]}),
-                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
                 },
                 "MSFT": {
                     "history": pd.DataFrame({"Close": [1.0, 1.05]}),
-                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
                 },
             },
             weights={"AAPL": 0.8, "MSFT": 0.2},
@@ -209,11 +205,9 @@ class DummyAgentWithAllocationOnly(DummyAgent):
             data_by_ticker={
                 "AAPL": {
                     "history": pd.DataFrame({"Close": [1.0, 1.1]}),
-                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
                 },
                 "MSFT": {
                     "history": pd.DataFrame({"Close": [1.0, 1.05]}),
-                    "financials": pd.DataFrame({"2024": [1.0]}, index=["Total Revenue"]),
                 },
             },
             weights={},

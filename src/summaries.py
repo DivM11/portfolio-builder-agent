@@ -37,27 +37,6 @@ def summarize_history_stats(history: pd.DataFrame) -> Dict[str, float]:
     }
 
 
-def summarize_financials_latest(
-    financials: pd.DataFrame,
-    metrics: Iterable[str],
-) -> Dict[str, float]:
-    if financials is None or financials.empty:
-        return {}
-
-    try:
-        latest_col = max(financials.columns)
-    except TypeError:
-        latest_col = financials.columns[-1]
-
-    summary: Dict[str, float] = {}
-    for metric in metrics:
-        if metric in financials.index:
-            value = financials.loc[metric, latest_col]
-            if pd.notna(value):
-                summary[metric] = float(value)
-    return summary
-
-
 def build_ticker_summary(
     ticker: str,
     data: Dict[str, pd.DataFrame],
@@ -128,24 +107,3 @@ def summarize_portfolio_stats(portfolio_series: pd.Series) -> Dict[str, float]:
         "current": float(portfolio_series.iloc[-1]),
         "return_1y": float(portfolio_series.iloc[-1] - 1.0),
     }
-
-
-def summarize_portfolio_financials(
-    financials_by_ticker: Dict[str, pd.DataFrame],
-    weights: Dict[str, float] | None,
-    metrics: Iterable[str],
-) -> Dict[str, float]:
-    if not financials_by_ticker:
-        return {}
-
-    normalized = normalize_weights(weights, financials_by_ticker.keys())
-    totals: Dict[str, float] = {}
-    for ticker, financials in financials_by_ticker.items():
-        weight = normalized.get(ticker, 0.0)
-        if weight <= 0:
-            continue
-        summary = summarize_financials_latest(financials, metrics)
-        for metric, value in summary.items():
-            totals[metric] = totals.get(metric, 0.0) + value * weight
-
-    return totals
