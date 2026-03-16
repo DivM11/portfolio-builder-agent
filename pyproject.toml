@@ -1,6 +1,6 @@
 # Added comments about using `--no-root` for dependency management
 [tool.poetry]
-name = "yfinance-agent"
+name = "portfolio-builder-agent"
 version = "0.1.0"
 description = "An AI-powered stock analysis dashboard using Streamlit, Massive.com (Polygon.io), and OpenRouter."
 authors = ["Divyansh Tripathi <your-email@example.com>"]

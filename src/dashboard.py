@@ -21,7 +21,6 @@ from src.portfolio import allocate_portfolio_by_weights, normalize_weights
 from src.portfolio_display_summary import PortfolioDisplaySummary
 from src.summaries import (
     build_portfolio_returns_series,
-    summarize_portfolio_financials,
     summarize_portfolio_stats,
 )
 from src.tickr_data_manager import TickrDataManager
@@ -149,7 +148,6 @@ def _init_state(default_user_input: str, default_portfolio_size: float, chat_int
     state.setdefault("weights", {})
     state.setdefault("portfolio_allocation", {})
     state.setdefault("portfolio_stats", {})
-    state.setdefault("portfolio_financials", {})
     state.setdefault("portfolio_series", pd.Series(dtype=float))
     state.setdefault("analysis_text", "")
     state.setdefault("reasoning_display_text", "")
@@ -168,7 +166,7 @@ def _init_state(default_user_input: str, default_portfolio_size: float, chat_int
     state.setdefault("awaiting_user_decision", False)
 
 
-def _apply_agent_result(result: AgentResult, financial_metrics: list[str]) -> None:
+def _apply_agent_result(result: AgentResult) -> None:
     st.session_state["tickers"] = result.tickers
     st.session_state["data_by_ticker"] = result.data_by_ticker
     weights = dict(result.weights)
@@ -208,11 +206,6 @@ def _apply_agent_result(result: AgentResult, financial_metrics: list[str]) -> No
     )
     st.session_state["portfolio_series"] = portfolio_series
     st.session_state["portfolio_stats"] = summarize_portfolio_stats(portfolio_series)
-    st.session_state["portfolio_financials"] = summarize_portfolio_financials(
-        {ticker: data["financials"] for ticker, data in result.data_by_ticker.items()},
-        normalized_weights,
-        financial_metrics,
-    )
 
 
 def run_dashboard(config: Dict[str, Any]) -> None:
@@ -222,7 +215,6 @@ def run_dashboard(config: Dict[str, Any]) -> None:
     dashboard = config["dashboard"]
     openrouter_cfg = config["openrouter"]
     stocks_cfg = config["stocks"]
-    financial_metrics = stocks_cfg.get("financials_metrics", [])
 
     _init_state(dashboard["default_user_input"], dashboard["default_portfolio_size"], ui["chat_intro"])
     session_id = _get_session_id()
@@ -374,7 +366,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
 
         st.session_state["pending_prompt"] = None
         st.session_state["is_processing"] = False
-        _apply_agent_result(result, financial_metrics)
+        _apply_agent_result(result)
         st.session_state["awaiting_user_decision"] = bool(result.weights or result.suggestions)
         if result.tickers:
             _push_chat_message("assistant", ui["ticker_reply_template"].format(tickers=", ".join(result.tickers)), chat_tab)
@@ -398,7 +390,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
                 session_id=session_id,
                 run_id=_new_correlation_id(),
             )
-            _apply_agent_result(updated, financial_metrics)
+            _apply_agent_result(updated)
             st.session_state["awaiting_user_decision"] = bool(updated.suggestions)
             if updated.analysis_text:
                 st.session_state["messages"].append(

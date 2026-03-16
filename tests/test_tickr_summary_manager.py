@@ -14,19 +14,16 @@ def test_summary_manager_uses_cache_per_version():
     first = manager.build_or_get_summary(
         tickers=["AAPL"],
         data_by_ticker=data,
-        financial_metrics=[],
         data_version=1,
     )
     second = manager.build_or_get_summary(
         tickers=["AAPL"],
         data_by_ticker=data,
-        financial_metrics=[],
         data_version=1,
     )
     refreshed = manager.build_or_get_summary(
         tickers=["AAPL"],
         data_by_ticker=data,
-        financial_metrics=[],
         data_version=2,
     )
 

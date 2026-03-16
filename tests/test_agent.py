@@ -86,8 +86,6 @@ def _base_config() -> dict:
         "stocks": {
             "max_tickers": 10,
             "history_period": "1y",
-            "financials_period": "quarterly",
-            "financials_metrics": ["Total Revenue"],
         },
         "event_store": {"schema_version": 2},
         "massive": {"api": {"api_key": "k"}},

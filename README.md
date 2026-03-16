@@ -51,7 +51,7 @@ The YFinance Agent is a Python-based application designed to help users build pe
 
 ## Project Structure
 ```
-yfinance-agent/
+portfolio-builder-agent/
 │
 ├── docs/               # Documentation files
 ├── config.yml          # Application configuration
@@ -81,7 +81,7 @@ yfinance-agent/
 1. Clone the repository:
    ```bash
    git clone <repository-url>
-   cd yfinance-agent
+   cd portfolio-builder-agent
    ```
 2. Install dependencies:
    ```bash
@@ -124,7 +124,7 @@ docker compose up # reads .secrets automatically
 
 **Docker CLI (env-file):**
 ```bash
-docker run -p 8501:8501 --env-file .secrets yfinance-agent
+docker run -p 8501:8501 --env-file .secrets portfolio-builder-agent
 ```
 
 ### Massive.com (Polygon.io) Setup
@@ -143,7 +143,7 @@ docker run -p 8501:8501 --env-file .secrets yfinance-agent
 
 ### Build the Docker Image
 ```bash
-docker build -t yfinance-agent .
+docker build -t portfolio-builder-agent .
 ```
 
 ### Run with Docker Compose (recommended)
@@ -155,10 +155,10 @@ docker compose run --rm test                             # run tests (streams ou
 ### Run with Docker CLI
 ```bash
 # App mode
-docker run -p 8501:8501 --env-file .secrets yfinance-agent
+docker run -p 8501:8501 --env-file .secrets portfolio-builder-agent
 
 # Test mode
-docker run --rm yfinance-agent pytest -v --tb=short
+docker run --rm portfolio-builder-agent pytest -v --tb=short
 ```
 
 ### Full rebuild cycle

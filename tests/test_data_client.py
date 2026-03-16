@@ -175,7 +175,7 @@ def test_fetch_financials_empty():
 
 def test_fetch_stock_data_returns_all_keys():
     client = DummyMassiveClient()
-    data = fetch_stock_data(client, "AAPL", history_period="1y", financials_period="quarterly")
+    data = fetch_stock_data(client, "AAPL", history_period="1y")
 
     assert set(data.keys()) == {"history", "financials", "history_status"}
     assert not data["history"].empty
@@ -186,7 +186,7 @@ def test_fetch_stock_data_returns_all_keys():
 def test_fetch_stock_data_skips_financials_endpoint():
     client = DummyNoFinancialsClient()
 
-    data = fetch_stock_data(client, "AAPL", history_period="1y", financials_period="quarterly")
+    data = fetch_stock_data(client, "AAPL", history_period="1y")
 
     assert not data["history"].empty
     assert data["financials"].empty

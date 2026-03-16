@@ -34,7 +34,6 @@ def fetch_ticker_data_tool(
     tickr_data_manager: TickrDataManager,
     stock_data_fetcher: Callable[..., dict[str, Any]],
     history_period: str,
-    financials_period: str,
     massive_client: Any,
     progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
@@ -45,7 +44,6 @@ def fetch_ticker_data_tool(
         tickers=tickers,
         fetcher=stock_data_fetcher,
         history_period=history_period,
-        financials_period=financials_period,
         massive_client=massive_client,
         progress_callback=progress_callback,
     )

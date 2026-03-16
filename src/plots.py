@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, Optional
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -63,52 +63,6 @@ def plot_history(
         xaxis_title="Date",
         yaxis_title="Close Price",
         legend_title="Ticker",
-    )
-    _apply_gridlines(fig)
-    return fig
-
-
-def _select_financials_metrics(
-    financials: pd.DataFrame,
-    metrics: Iterable[str],
-) -> Tuple[pd.DataFrame, List[str]]:
-    if financials is None or financials.empty:
-        return pd.DataFrame(), []
-
-    available = [metric for metric in metrics if metric in financials.index]
-    if not available:
-        return pd.DataFrame(), []
-
-    selected = financials.loc[available]
-    return selected.sort_index(axis=1), available
-
-
-def plot_financials(
-    financials: pd.DataFrame,
-    metrics: Iterable[str],
-    title: str,
-) -> Optional[Figure]:
-    """Plot selected financial metrics over time."""
-    selected, available = _select_financials_metrics(financials, metrics)
-    if selected.empty:
-        return None
-
-    fig = go.Figure()
-    for metric in available:
-        fig.add_trace(
-            go.Scatter(
-                x=selected.columns,
-                y=selected.loc[metric],
-                mode="lines+markers",
-                name=metric,
-            )
-        )
-
-    fig.update_layout(
-        title=title,
-        xaxis_title="Period",
-        yaxis_title="Value",
-        legend_title="Metric",
     )
     _apply_gridlines(fig)
     return fig

@@ -47,7 +47,6 @@ def test_build_ticker_summary():
     summary_text = build_ticker_summary(
         ticker="AAPL",
         data=data,
-        financial_metrics=["Total Revenue"],
     )
 
     assert '"t":"AAPL"' in summary_text

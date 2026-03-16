@@ -41,7 +41,6 @@ def analyze_portfolio_tool(
     arguments: dict[str, Any],
     *,
     tickr_data_manager: TickrDataManager,
-    financial_metrics: list[str],
 ) -> dict[str, Any]:
     tickers = [str(t).upper() for t in arguments.get("tickers", []) if str(t).strip()]
     weights_raw = arguments.get("weights", {})
@@ -62,7 +61,6 @@ def analyze_portfolio_tool(
     financials = summarize_portfolio_financials(
         {ticker: payload.get("financials") for ticker, payload in data_by_ticker.items()},
         weights,
-        financial_metrics,
     )
     return {
         "stats": stats,

@@ -47,10 +47,8 @@ ui:
   suggested_label: "Suggested Tickers:"
   ticker_header_template: "Data for {ticker}"
   section_history: "Historical Data:"
-  section_financials: "Financials:"
   download_prompt: "Download as CSV:"
   download_history_label: "Historical prices CSV"
-  download_financials_label: "Financials CSV"
   missing_api_key: "Missing OpenRouter API key. Set the OPENROUTER_API_KEY environment variable."
   missing_massive_key: "Missing Massive.com API key. Set the MASSIVE_API_KEY environment variable."
   max_tickers_warning: "Limiting to {max_tickers} tickers for analysis."
@@ -77,7 +75,6 @@ ui:
   portfolio_output_label: "Recommended Portfolio"
   portfolio_stats_label: "Portfolio Stats"
   portfolio_returns_label: "Portfolio Returns (1Y)"
-  portfolio_financials_label: "Portfolio Financials"
   portfolio_stats_template: "Min {min:.2f} | Max {max:.2f} | Median {median:.2f} | Current {current:.2f} | 1Y Return {return_1y:.2%}"
 
 agent:
@@ -119,11 +116,4 @@ openrouter:
 
 stocks:
   history_period: "1y"
-  financials_period: "quarterly"
   max_tickers: 10
-  financials_metrics:
-    - "Total Revenue"
-    - "Cost Of Revenue"
-    - "Operating Income"
-    - "EBITDA"
-    - "Net Income"

@@ -279,7 +279,6 @@ def _base_config(api_key: str | None) -> dict:
             "portfolio_output_label": "Recommended Portfolio",
             "portfolio_stats_label": "Portfolio Stats",
             "portfolio_returns_label": "Portfolio Returns",
-            "portfolio_financials_label": "Portfolio Financials",
             "missing_api_key": "Missing",
             "missing_massive_key": "Missing Massive",
             "fetch_progress_start": "Fetching ticker data...",
@@ -303,9 +302,7 @@ def _base_config(api_key: str | None) -> dict:
         },
         "stocks": {
             "history_period": "1y",
-            "financials_period": "quarterly",
             "max_tickers": 5,
-            "financials_metrics": ["Total Revenue"],
         },
         "massive": {"api": {"api_key": "massive-key"}},
         "event_store": {"enabled": False, "schema_version": 2},

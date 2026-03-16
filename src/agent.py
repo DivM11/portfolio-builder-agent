@@ -309,7 +309,6 @@ class PortfolioAgent:
                 tickr_data_manager=self.tickr_data_manager,
                 stock_data_fetcher=self._stock_data_fetcher,
                 history_period=stocks_cfg.get("history_period", "1y"),
-                financials_period=stocks_cfg.get("financials_period", "quarterly"),
                 massive_client=massive_client,
                 progress_callback=progress_callback,
             )
@@ -321,7 +320,6 @@ class PortfolioAgent:
                 arguments,
                 tickr_data_manager=self.tickr_data_manager,
                 tickr_summary_manager=self.tickr_summary_manager,
-                financial_metrics=stocks_cfg.get("financials_metrics", []),
             )
             work_state["summary"] = payload.get("summary", "")
             work_state["tickers"] = payload.get("tickers", work_state.get("tickers", []))
@@ -345,14 +343,12 @@ class PortfolioAgent:
                         {"tickers": tickers_for_summary},
                         tickr_data_manager=self.tickr_data_manager,
                         tickr_summary_manager=self.tickr_summary_manager,
-                        financial_metrics=stocks_cfg.get("financials_metrics", []),
                     )
                     work_state["summary"] = summary_payload.get("summary", "")
                     work_state["tickers"] = summary_payload.get("tickers", tickers_for_summary)
             payload = analyze_portfolio_tool(
                 arguments,
                 tickr_data_manager=self.tickr_data_manager,
-                financial_metrics=stocks_cfg.get("financials_metrics", []),
             )
             work_state["analysis"] = payload
             return payload
@@ -395,7 +391,6 @@ class PortfolioAgent:
         summary_text = self.tickr_summary_manager.build_or_get_summary(
             tickers=tickers,
             data_by_ticker=data_by_ticker,
-            financial_metrics=self.config.get("stocks", {}).get("financials_metrics", []),
             data_version=self.tickr_data_manager.cache_version,
         )
 

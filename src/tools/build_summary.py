@@ -34,7 +34,6 @@ def build_summary_tool(
     *,
     tickr_data_manager: TickrDataManager,
     tickr_summary_manager: TickrSummaryManager,
-    financial_metrics: list[str],
 ) -> dict[str, Any]:
     tickers = [str(t).upper() for t in arguments.get("tickers", []) if str(t).strip()]
     data_by_ticker = tickr_data_manager.get_data_by_ticker(tickers)
@@ -42,7 +41,6 @@ def build_summary_tool(
     summary = tickr_summary_manager.build_or_get_summary(
         tickers=available,
         data_by_ticker=data_by_ticker,
-        financial_metrics=financial_metrics,
         data_version=tickr_data_manager.cache_version,
     )
     return {

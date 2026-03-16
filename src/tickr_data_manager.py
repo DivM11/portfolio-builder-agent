@@ -42,7 +42,6 @@ class TickrDataManager:
         fetcher: Callable[..., Dict[str, Any]],
         *,
         history_period: str,
-        financials_period: str,
         massive_client: Any,
         progress_callback: Optional[ProgressCallback] = None,
     ) -> TickrDataFetchResult:
@@ -66,7 +65,6 @@ class TickrDataManager:
                     ticker_data = fetcher(
                         ticker=ticker,
                         history_period=history_period,
-                        financials_period=financials_period,
                         client=massive_client,
                     )
                     self.update_ticker(ticker, ticker_data)

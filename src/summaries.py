@@ -61,7 +61,6 @@ def summarize_financials_latest(
 def build_ticker_summary(
     ticker: str,
     data: Dict[str, pd.DataFrame],
-    financial_metrics: Iterable[str],
 ) -> str:
     payload: Dict[str, object] = {"t": ticker}
 
@@ -74,20 +73,12 @@ def build_ticker_summary(
             "cur": _compact_number(history_stats["current"]),
         }
 
-    financials_summary = summarize_financials_latest(
-        data.get("financials", pd.DataFrame()),
-        financial_metrics,
-    )
-    if financials_summary:
-        payload["f"] = {key: _compact_number(value) for key, value in financials_summary.items()}
-
     return json.dumps(payload, separators=(",", ":"))
 
 
 def build_portfolio_summary(
     tickers: Iterable[str],
     data_by_ticker: Dict[str, Dict[str, pd.DataFrame]],
-    financial_metrics: Iterable[str],
 ) -> str:
     summaries = []
     for ticker in tickers:
@@ -96,7 +87,6 @@ def build_portfolio_summary(
             build_ticker_summary(
                 ticker=ticker,
                 data=data,
-                financial_metrics=financial_metrics,
             )
         )
     return "\n".join(summaries)

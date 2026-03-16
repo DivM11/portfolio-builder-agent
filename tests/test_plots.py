@@ -47,21 +47,6 @@ def test_plot_history_returns_none_for_all_nan_close_values():
     assert fig is None
 
 
-def test_plot_financials_metrics():
-    financials = pd.DataFrame(
-        {
-            pd.Timestamp("2023-12-31"): [100, 10],
-            pd.Timestamp("2024-03-31"): [120, 12],
-        },
-        index=["Total Revenue", "EBITDA"],
-    )
-
-    fig = plot_financials(financials, metrics=["Total Revenue", "EBITDA"], title="Test")
-
-    assert fig is not None
-    assert len(fig.data) == 2
-
-
 def test_plot_portfolio_allocation():
     allocation = {"AAPL": 600.0, "MSFT": 400.0}
     fig = plot_portfolio_allocation(allocation, title="Test Allocation")
