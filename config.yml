@@ -36,7 +36,7 @@ ui:
   model_selection_header: "Model Selection"
   portfolio_size_label: "Portfolio Size ($)"
   chat_placeholder: "Describe your portfolio preferences"
-  chat_intro: "Tell me what kind of portfolio you want and I will build it. You can customize the AI models used for each step in the sidebar."
+  chat_intro: "Tell me what kind of portfolio you want and I will build it. You can customize the LLM models used for the agent in the sidebar."
   starter_prompts_label: "Quick start ideas"
   starter_prompts:
     - "Build a long-term growth portfolio focused on AI and cloud leaders."

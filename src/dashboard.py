@@ -134,6 +134,11 @@ def _render_current_portfolio_sections(container, ui: Dict[str, Any]) -> None:
             st.subheader(ui.get("analysis_heading", "Portfolio Analysis"))
             st.write(st.session_state.get("analysis_text", ""))
 
+            reasoning_text = st.session_state.get("reasoning_display_text", "")
+            if reasoning_text:
+                with st.expander(ui.get("reasoning_heading", "Reasoning"), expanded=False):
+                    st.write(reasoning_text)
+
             st.subheader(ui.get("suggestions_heading", "Suggested portfolio changes"))
             st.write(st.session_state.get("suggestions_text", "No suggested changes."))
 
