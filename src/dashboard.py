@@ -102,12 +102,26 @@ def _build_allocation_table(tickers: list[str], weights: dict[str, float], alloc
     return pd.DataFrame(rows)
 
 
+def _weights_match(a: dict[str, float], b: dict[str, float]) -> bool:
+    """Return True if two weight dicts are effectively identical."""
+    if set(a.keys()) != set(b.keys()):
+        return False
+    return all(abs(float(a[k]) - float(b.get(k, 0))) < 1e-4 for k in a)
+
+
 def _format_suggestions_text(suggestions: dict[str, Any], weights: dict[str, float]) -> str:
-    if suggestions:
-        return PortfolioDisplaySummary().format_suggestions(suggestions)
-    if weights:
-        return PortfolioDisplaySummary().format_suggestions({"add": [], "remove": [], "reweight": weights})
-    return "No suggested changes."
+    if not suggestions or not isinstance(suggestions, dict):
+        return "No suggested changes."
+
+    add = suggestions.get("add", [])
+    remove = suggestions.get("remove", [])
+    reweight = suggestions.get("reweight", {})
+
+    if not add and not remove:
+        if not reweight or _weights_match(reweight, weights):
+            return "No suggested changes."
+
+    return PortfolioDisplaySummary().format_suggestions(suggestions)
 
 
 def _render_current_portfolio_sections(container, ui: Dict[str, Any]) -> None:
@@ -287,6 +301,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
     if typed_prompt_input or starter_prompt_input:
         st.session_state["pending_prompt"] = typed_prompt_input or starter_prompt_input
         st.session_state["is_processing"] = True
+        st.rerun()
 
     prompt_input = st.session_state.get("pending_prompt") if st.session_state.get("is_processing", False) else None
 

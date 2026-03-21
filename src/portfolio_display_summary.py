@@ -13,6 +13,9 @@ class PortfolioDisplaySummary:
         remove = suggestions.get("remove", []) if isinstance(suggestions, dict) else []
         reweight = suggestions.get("reweight", {}) if isinstance(suggestions, dict) else {}
 
+        if not add and not remove and not reweight:
+            return "No suggested changes."
+
         lines: List[str] = ["Suggested portfolio changes:"]
         lines.append(f"- Add: {', '.join(add) if add else 'None'}")
         lines.append(f"- Remove: {', '.join(remove) if remove else 'None'}")

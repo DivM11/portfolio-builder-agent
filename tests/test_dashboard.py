@@ -523,3 +523,91 @@ def test_run_dashboard_reuses_allocation_dataframe_in_chat_and_portfolio(monkeyp
     assert occurrences >= 2
     assert any("Portfolio Analysis" in heading for heading in st.subheaders)
     assert any("Suggested portfolio changes" in heading for heading in st.subheaders)
+
+
+def test_chat_input_hidden_during_processing(monkeypatch):
+    """Submitting a prompt should call st.rerun() to hide chat input immediately."""
+    sidebar = DummySidebar()
+    st_mock = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    st_mock.rerun_count = 0
+    original_rerun = st_mock.rerun
+
+    def _tracking_rerun():
+        st_mock.rerun_count += 1
+        return original_rerun()
+
+    st_mock.rerun = _tracking_rerun
+    monkeypatch.setattr("src.dashboard.st", st_mock)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgent)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    # At least 2 reruns: one to hide chat input, one after agent completes
+    assert st_mock.rerun_count >= 2
+
+
+def test_no_reweight_when_suggestions_empty(monkeypatch):
+    """When agent returns empty suggestions, display 'No suggested changes.' not reweight."""
+    sidebar = DummySidebar()
+    st_mock = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    monkeypatch.setattr("src.dashboard.st", st_mock)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgent)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    assert st_mock.session_state["suggestions_text"] == "No suggested changes."
+    assert not any("Reweight:" in text for text in st_mock.writes)
+
+
+class DummyAgentWithMatchingReweight(DummyAgent):
+    """Agent that returns reweight identical to current weights (no actual change)."""
+
+    def run(self, **kwargs):
+        self.calls.append(("run", kwargs))
+        return AgentResult(
+            tickers=["AAPL", "MSFT"],
+            data_by_ticker={
+                "AAPL": {"history": pd.DataFrame({"Close": [1.0, 1.1]})},
+                "MSFT": {"history": pd.DataFrame({"Close": [1.0, 1.05]})},
+            },
+            weights={"AAPL": 0.5, "MSFT": 0.5},
+            allocation={"AAPL": 500.0, "MSFT": 500.0},
+            analysis_text="analysis",
+            suggestions={"add": [], "remove": [], "reweight": {"AAPL": 0.5, "MSFT": 0.5}},
+        )
+
+
+def test_no_reweight_when_matching_current_weights(monkeypatch):
+    """When reweight matches current weights, show 'No suggested changes.'."""
+    sidebar = DummySidebar()
+    st_mock = DummyStreamlit(sidebar, prompt="build me a portfolio")
+    monkeypatch.setattr("src.dashboard.st", st_mock)
+
+    monkeypatch.setattr("src.dashboard.create_openrouter_client", lambda **_kwargs: DummyClient())
+    monkeypatch.setattr("src.dashboard.LLMService", lambda *args, **kwargs: object())
+    monkeypatch.setattr("src.dashboard.PortfolioAgent", DummyAgentWithMatchingReweight)
+    monkeypatch.setattr("src.dashboard.create_massive_client", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr("src.dashboard.fetch_stock_data", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr("src.dashboard.plot_history", lambda *_args, **_kwargs: "history")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_allocation", lambda *_args, **_kwargs: "allocation")
+    monkeypatch.setattr("src.dashboard.plot_portfolio_returns", lambda *_args, **_kwargs: "returns")
+
+    run_dashboard(_base_config(api_key="ok"))
+
+    assert st_mock.session_state["suggestions_text"] == "No suggested changes."
