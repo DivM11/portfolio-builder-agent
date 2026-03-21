@@ -16,8 +16,10 @@ RUN poetry config virtualenvs.create false \
 
 COPY . /app
 
-# Expose the port Streamlit will run on
+# Expose Streamlit (main app), monitoring API and monitoring UI ports
 EXPOSE 8501
+EXPOSE 8000
+EXPOSE 8502
 
 
 # Default command to run the application in app mode

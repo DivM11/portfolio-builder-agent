@@ -13,6 +13,29 @@ services:
     #   - OPENROUTER_API_KEY=your_key
     #   - MASSIVE_API_KEY=your_key
 
+  monitor-api:
+    build: .
+    command: ["uvicorn", "src.monitoring_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - event-data:/app/data
+    environment:
+      DB_PATH: data/events.db
+
+  monitor-ui:
+    build: .
+    command: ["streamlit", "run", "monitoring.py", "--server.port=8502", "--server.address=0.0.0.0"]
+    ports:
+      - "8502:8502"
+    volumes:
+      - event-data:/app/data
+    environment:
+      DB_PATH: data/events.db
+      MONITOR_API_URL: http://monitor-api:8000
+    depends_on:
+      - monitor-api
+
   test:
     build: .
     command: ["pytest", "-v", "--tb=short"]

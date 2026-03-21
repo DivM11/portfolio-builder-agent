@@ -17,6 +17,9 @@ numpy = "*"
 matplotlib = "*"
 omegaconf = "*"
 plotly = "*"
+fastapi = "*"
+uvicorn = {version = "*", extras = ["standard"]}
+requests = "*"
 
 [tool.poetry.group.dev.dependencies]
 black = "*"
