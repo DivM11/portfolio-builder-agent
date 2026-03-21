@@ -7,10 +7,12 @@ import re
 import time
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
-from src.event_store.base import EventStore, NullEventStore
-from src.event_store.models import EventRecord
+from src.event_store.base import EventStore, MonitoringStore, NullEventStore
+from src.event_store.models import EventRecord, LLMCallRecord
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
@@ -129,6 +131,25 @@ class LLMService:
                     token_usage=extract_usage(parsed_response),
                 )
             )
+            if isinstance(self.event_store, MonitoringStore):
+                self.event_store.record_llm_call(
+                    LLMCallRecord(
+                        id=str(uuid4()),
+                        session_id=session,
+                        run_id=run,
+                        timestamp=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                        model=model,
+                        prompt=messages,
+                        output=output,
+                        output_code=status_code,
+                        latency_ms=latency_ms,
+                        token_usage=extract_usage(parsed_response),
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        stage=request_name,
+                        schema_version=self.schema_version,
+                    )
+                )
             return parsed_response, status_code
         except AttributeError:
             response = self.client.chat.completions.create(
@@ -161,6 +182,25 @@ class LLMService:
                     token_usage=extract_usage(response),
                 )
             )
+            if isinstance(self.event_store, MonitoringStore):
+                self.event_store.record_llm_call(
+                    LLMCallRecord(
+                        id=str(uuid4()),
+                        session_id=session,
+                        run_id=run,
+                        timestamp=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                        model=model,
+                        prompt=messages,
+                        output=output,
+                        output_code=None,
+                        latency_ms=latency_ms,
+                        token_usage=extract_usage(response),
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        stage=request_name,
+                        schema_version=self.schema_version,
+                    )
+                )
             return response, None
         except Exception:
             logger.exception(
@@ -265,6 +305,25 @@ class LLMService:
                 token_usage=extract_usage(parsed_response),
             )
         )
+        if isinstance(self.event_store, MonitoringStore):
+            self.event_store.record_llm_call(
+                LLMCallRecord(
+                    id=str(uuid4()),
+                    session_id=session,
+                    run_id=run,
+                    timestamp=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                    model=model,
+                    prompt=messages,
+                    output=text,
+                    output_code=status_code,
+                    latency_ms=latency_ms,
+                    token_usage=extract_usage(parsed_response),
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stage=request_name,
+                    schema_version=self.schema_version,
+                )
+            )
         return ToolResponse(
             text=text,
             tool_calls=tool_calls,

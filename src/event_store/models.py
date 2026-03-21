@@ -8,6 +8,10 @@ from typing import Any
 from uuid import uuid4
 
 
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
 @dataclass
 class EventRecord:
     event_type: str
@@ -38,6 +42,77 @@ class EventRecord:
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="milliseconds")
     )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class LLMCallRecord:
+    """One row per LLM HTTP round-trip recorded by LLMService."""
+
+    id: str
+    session_id: str
+    run_id: str | None
+    timestamp: str
+    model: str | None
+    prompt: list[dict[str, Any]] | None
+    output: str | None
+    output_code: int | None
+    latency_ms: float | None
+    token_usage: dict[str, Any] | None
+    temperature: float | None
+    max_tokens: int | None
+    stage: str | None
+    schema_version: int = 1
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ToolCallRecord:
+    """One row per tool invocation recorded by PortfolioAgent."""
+
+    id: str
+    session_id: str
+    run_id: str | None
+    timestamp: str
+    tool_name: str
+    tool_call_id: str | None
+    arguments: dict[str, Any] | None
+    result: dict[str, Any] | None
+    agent_round: int | None
+    stage: str | None
+    schema_version: int = 1
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class AgentPerformanceRecord:
+    """One ETL-materialised row per completed agent run."""
+
+    id: str
+    session_id: str
+    run_id: str
+    timestamp: str
+    model: str | None
+    total_llm_calls: int
+    total_tool_calls: int
+    total_iterations: int
+    total_latency_ms: float
+    total_tokens: int
+    portfolio_return_1y: float | None
+    portfolio_current: float | None
+    portfolio_min: float | None
+    portfolio_max: float | None
+    tickers: list[str]
+    weights: dict[str, float]
+    status: str
+    error_message: str | None = None
+    schema_version: int = 1
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

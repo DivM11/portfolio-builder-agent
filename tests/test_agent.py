@@ -7,8 +7,8 @@ import pandas as pd
 
 from src.agent import PortfolioAgent
 from src.agent_models import AgentContext
-from src.event_store.base import EventStore
-from src.event_store.models import EventRecord
+from src.event_store.base import EventStore, NullEventStore
+from src.event_store.models import AgentPerformanceRecord, EventRecord, LLMCallRecord, ToolCallRecord
 
 
 class CaptureEventStore(EventStore):
@@ -23,6 +23,50 @@ class CaptureEventStore(EventStore):
 
     def close(self) -> None:
         return None
+
+
+class CaptureMonitoringStore(NullEventStore):
+    """Captures legacy events and all MonitoringStore record types."""
+
+    def __init__(self) -> None:
+        self.events: list[EventRecord] = []
+        self.llm_calls: list[LLMCallRecord] = []
+        self.tool_calls: list[ToolCallRecord] = []
+        self.perf_records: list[AgentPerformanceRecord] = []
+
+    def record(self, event: EventRecord) -> None:
+        self.events.append(event)
+
+    def query(self, **_kwargs):
+        return self.events
+
+    def record_llm_call(self, record: LLMCallRecord) -> None:
+        self.llm_calls.append(record)
+
+    def record_tool_call(self, record: ToolCallRecord) -> None:
+        self.tool_calls.append(record)
+
+    def record_agent_performance(self, record: AgentPerformanceRecord) -> None:
+        self.perf_records.append(record)
+
+    def query_llm_calls(self, *, session_id=None, run_id=None, limit=100) -> list[LLMCallRecord]:
+        results = self.llm_calls
+        if session_id:
+            results = [r for r in results if r.session_id == session_id]
+        if run_id:
+            results = [r for r in results if r.run_id == run_id]
+        return results[:limit]
+
+    def query_tool_calls(self, *, session_id=None, run_id=None, limit=100) -> list[ToolCallRecord]:
+        results = self.tool_calls
+        if session_id:
+            results = [r for r in results if r.session_id == session_id]
+        if run_id:
+            results = [r for r in results if r.run_id == run_id]
+        return results[:limit]
+
+    def query_agent_performance(self, *, session_id=None, run_id=None, limit=100) -> list[AgentPerformanceRecord]:
+        return self.perf_records[:limit]
 
 
 class DummyLLMService:
@@ -360,3 +404,161 @@ def test_agent_without_guard_skips_check() -> None:
     result = agent.run(user_input="anything", portfolio_size=1000.0)
 
     assert result.tickers == ["AAPL", "MSFT"]
+
+
+# ---------------------------------------------------------------------------
+# MonitoringStore integration — record_tool_call and agent_performance
+# ---------------------------------------------------------------------------
+
+class ToolCallLLMService:
+    """Returns one tool-call round then a final JSON result."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete_with_tools(self, **_kwargs):
+        self.calls += 1
+
+        class _ToolResponse:
+            text = ""
+            has_tool_calls = True
+            tool_calls = [
+                type(
+                    "TC",
+                    (),
+                    {
+                        "id": "tc-1",
+                        "name": "generate_tickers",
+                        "arguments": {"tickers": ["AAPL", "MSFT"]},
+                    },
+                )()
+            ]
+
+        class _FinalResponse:
+            text = json.dumps(
+                {
+                    "tickers": ["AAPL", "MSFT"],
+                    "weights": {"AAPL": 0.6, "MSFT": 0.4},
+                    "allocation": {"AAPL": 600, "MSFT": 400},
+                    "analysis_text": "ok",
+                    "suggestions": {},
+                }
+            )
+            tool_calls = []
+            has_tool_calls = False
+
+        if self.calls == 1:
+            return _ToolResponse()
+        return _FinalResponse()
+
+
+def _monitoring_config() -> dict:
+    return {
+        "stocks": {"max_tickers": 10, "history_period": "1y"},
+        "event_store": {"schema_version": 2},
+        "massive": {"api": {"api_key": "k"}},
+        "agent": {
+            "model": "anthropic/test",
+            "max_tokens": 128,
+            "temperature": 0.2,
+            "max_tool_rounds": 5,
+        },
+    }
+
+
+def test_run_emits_tool_call_record_to_monitoring_store() -> None:
+    store = CaptureMonitoringStore()
+    llm = ToolCallLLMService()
+    agent = PortfolioAgent(
+        llm,
+        _monitoring_config(),
+        event_store=store,
+        massive_client_factory=lambda _k: object(),
+        stock_data_fetcher=lambda **_kwargs: {},
+    )
+    agent.tickr_data_manager.cache = {
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})},
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})},
+    }
+
+    agent.run(user_input="build a portfolio", portfolio_size=1000.0, session_id="s1", run_id="r1")
+
+    assert len(store.tool_calls) == 1
+    tc = store.tool_calls[0]
+    assert tc.tool_name == "generate_tickers"
+    assert tc.session_id == "s1"
+    assert tc.run_id == "r1"
+    assert tc.agent_round == 1
+    assert tc.schema_version == 2
+
+
+def test_run_emits_agent_performance_record() -> None:
+    store = CaptureMonitoringStore()
+    llm = CaptureLLMService()
+    agent = PortfolioAgent(
+        llm,
+        _monitoring_config(),
+        event_store=store,
+        massive_client_factory=lambda _k: object(),
+        stock_data_fetcher=lambda **_kwargs: {},
+    )
+    agent.tickr_data_manager.cache = {
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})},
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})},
+    }
+
+    agent.run(user_input="build a portfolio", portfolio_size=1000.0, session_id="s1", run_id="r1")
+
+    assert len(store.perf_records) == 1
+    perf = store.perf_records[0]
+    assert perf.session_id == "s1"
+    assert perf.run_id == "r1"
+    assert perf.status == "completed"
+    assert perf.model == "anthropic/test"
+    assert perf.schema_version == 2
+
+
+def test_refine_emits_agent_performance_record() -> None:
+    store = CaptureMonitoringStore()
+    llm = TwoStepLLMService()
+    agent = PortfolioAgent(
+        llm,
+        _monitoring_config(),
+        event_store=store,
+        massive_client_factory=lambda _k: object(),
+        stock_data_fetcher=lambda **_kwargs: {},
+    )
+    agent.tickr_data_manager.cache = {
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})},
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})},
+    }
+
+    agent.run(user_input="build", portfolio_size=1000.0, session_id="s1", run_id="r1")
+    agent.refine(feedback="refine it", session_id="s1", run_id="r2")
+
+    assert len(store.perf_records) == 2
+    assert store.perf_records[1].run_id == "r2"
+    assert store.perf_records[1].status == "completed"
+
+
+def test_run_does_not_emit_monitoring_records_to_plain_event_store() -> None:
+    """A plain CaptureEventStore (not MonitoringStore) gets no tool_call records."""
+    store = CaptureEventStore()
+    llm = CaptureLLMService()
+    agent = PortfolioAgent(
+        llm,
+        _monitoring_config(),
+        event_store=store,
+        massive_client_factory=lambda _k: object(),
+        stock_data_fetcher=lambda **_kwargs: {},
+    )
+    agent.tickr_data_manager.cache = {
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})},
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})},
+    }
+
+    agent.run(user_input="build a portfolio", portfolio_size=1000.0, session_id="s1", run_id="r1")
+
+    # Only legacy EventRecord events in the plain store — no ToolCallRecord
+    assert all(isinstance(e, EventRecord) for e in store.events)
+

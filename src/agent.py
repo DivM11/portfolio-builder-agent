@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Callable
+from uuid import uuid4
 
 from src.agent_models import AgentContext, AgentResult, Context
 from src.data_client import create_massive_client, fetch_stock_data
-from src.event_store.base import EventStore, NullEventStore
-from src.event_store.models import EventRecord
+from src.event_store.base import EventStore, MonitoringStore, NullEventStore
+from src.event_store.models import EventRecord, ToolCallRecord
+from src.etl.agent_performance import materialise_agent_performance
 from src.input_guard import InputGuard
 from src.llm_service import LLMService
 from src.tickr_data_manager import ProgressCallback, TickrDataManager
@@ -109,6 +112,7 @@ class PortfolioAgent:
             seed_result=None,
         )
         ctx.last_result = self._last_result
+        self._emit_agent_performance(ctx)
         return self._last_result
 
     def refine(
@@ -162,7 +166,41 @@ class PortfolioAgent:
             seed_result=previous,
         )
         ctx.last_result = self._last_result
+        self._emit_agent_performance(ctx)
         return self._last_result
+
+    def _emit_agent_performance(self, ctx: Context) -> None:
+        if not isinstance(self.event_store, MonitoringStore):
+            return
+        if not ctx.session_id or not ctx.run_id:
+            return
+        agent_cfg = self.config.get("agent", {})
+        schema_version = int(self.config.get("event_store", {}).get("schema_version", 1))
+        portfolio_stats: dict[str, Any] = {}
+        analysis = ctx.work_state.get("analysis")
+        if isinstance(analysis, dict):
+            portfolio_stats = {
+                k: analysis[k]
+                for k in ("return_1y", "current", "min", "max")
+                if k in analysis
+            }
+        try:
+            materialise_agent_performance(
+                self.event_store,
+                session_id=ctx.session_id,
+                run_id=ctx.run_id,
+                result=self._last_result,
+                portfolio_stats=portfolio_stats,
+                model=agent_cfg.get("model", ""),
+                schema_version=schema_version,
+                status="completed",
+            )
+        except Exception:
+            logger.exception(
+                "[session=%s run=%s] Failed to materialise agent performance",
+                ctx.session_id,
+                ctx.run_id,
+            )
 
     def _system_prompt(self, context: AgentContext) -> str:
         agent_cfg = self.config.get("agent", {})
@@ -271,6 +309,22 @@ class PortfolioAgent:
                             agent_round=round_index + 1,
                         )
                     )
+                    if isinstance(self.event_store, MonitoringStore):
+                        self.event_store.record_tool_call(
+                            ToolCallRecord(
+                                id=str(uuid4()),
+                                session_id=agent_context.session_id or "n/a",
+                                run_id=agent_context.run_id or "n/a",
+                                timestamp=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                                tool_name=call.name,
+                                tool_call_id=call.id,
+                                arguments=call.arguments,
+                                result=result_payload,
+                                agent_round=round_index + 1,
+                                stage="portfolio_agent",
+                                schema_version=schema_version,
+                            )
+                        )
                     ctx.add_tool_result_message(call.id, call.name, result_payload)
                 continue
 

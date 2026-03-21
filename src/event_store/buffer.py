@@ -6,7 +6,7 @@ import threading
 from collections import deque
 
 from src.event_store.base import EventStore
-from src.event_store.models import EventRecord
+from src.event_store.models import AgentPerformanceRecord, EventRecord, LLMCallRecord, ToolCallRecord
 
 
 class BufferedEventStore:
@@ -52,6 +52,38 @@ class BufferedEventStore:
 
     def query(self, **kwargs):
         return self._store.query(**kwargs)
+
+    # ------------------------------------------------------------------
+    # MonitoringStore forwarding (pass-through — no buffering needed for
+    # these low-volume writes; they go to the backing store directly)
+    # ------------------------------------------------------------------
+
+    def record_llm_call(self, record: LLMCallRecord) -> None:
+        if hasattr(self._store, "record_llm_call"):
+            self._store.record_llm_call(record)  # type: ignore[union-attr]
+
+    def record_tool_call(self, record: ToolCallRecord) -> None:
+        if hasattr(self._store, "record_tool_call"):
+            self._store.record_tool_call(record)  # type: ignore[union-attr]
+
+    def record_agent_performance(self, record: AgentPerformanceRecord) -> None:
+        if hasattr(self._store, "record_agent_performance"):
+            self._store.record_agent_performance(record)  # type: ignore[union-attr]
+
+    def query_llm_calls(self, **kwargs) -> list[LLMCallRecord]:
+        if hasattr(self._store, "query_llm_calls"):
+            return self._store.query_llm_calls(**kwargs)  # type: ignore[union-attr]
+        return []
+
+    def query_tool_calls(self, **kwargs) -> list[ToolCallRecord]:
+        if hasattr(self._store, "query_tool_calls"):
+            return self._store.query_tool_calls(**kwargs)  # type: ignore[union-attr]
+        return []
+
+    def query_agent_performance(self, **kwargs) -> list[AgentPerformanceRecord]:
+        if hasattr(self._store, "query_agent_performance"):
+            return self._store.query_agent_performance(**kwargs)  # type: ignore[union-attr]
+        return []
 
     def close(self) -> None:
         self._closed = True
