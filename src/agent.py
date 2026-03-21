@@ -6,10 +6,11 @@ import json
 import logging
 from typing import Any, Callable
 
-from src.agent_models import AgentContext, AgentResult
+from src.agent_models import AgentContext, AgentResult, Context
 from src.data_client import create_massive_client, fetch_stock_data
 from src.event_store.base import EventStore, NullEventStore
 from src.event_store.models import EventRecord
+from src.input_guard import InputGuard
 from src.llm_service import LLMService
 from src.tickr_data_manager import ProgressCallback, TickrDataManager
 from src.tickr_summary_manager import TickrSummaryManager
@@ -37,6 +38,7 @@ class PortfolioAgent:
         config: dict[str, Any],
         *,
         event_store: EventStore | None = None,
+        input_guard: InputGuard | None = None,
         tickr_data_manager: TickrDataManager | None = None,
         tickr_summary_manager: TickrSummaryManager | None = None,
         massive_client_factory: Callable[[str], Any] = create_massive_client,
@@ -45,11 +47,12 @@ class PortfolioAgent:
         self.llm_service = llm_service
         self.config = config
         self.event_store = event_store or NullEventStore()
+        self.input_guard = input_guard
         self.tickr_data_manager = tickr_data_manager or TickrDataManager()
         self.tickr_summary_manager = tickr_summary_manager or TickrSummaryManager()
         self._massive_client_factory = massive_client_factory
         self._stock_data_fetcher = stock_data_fetcher
-        self._messages: list[dict[str, Any]] = []
+        self._context: Context | None = None
         self._last_result = AgentResult()
 
     def run(
@@ -63,28 +66,49 @@ class PortfolioAgent:
         progress_callback: ProgressCallback | None = None,
         status_callback: StepStatusCallback | None = None,
     ) -> AgentResult:
-        context = AgentContext(
+        ctx = Context(
             user_input=user_input,
             portfolio_size=portfolio_size,
-            excluded_tickers=tuple(excluded_tickers or []),
+            excluded_tickers=excluded_tickers,
             session_id=session_id,
             run_id=run_id,
         )
-        self._messages = [
-            {"role": "system", "content": self._system_prompt(context)},
-            {"role": "user", "content": user_input},
-        ]
+        self._context = ctx
+
+        if self.input_guard is not None:
+            guard_result = self.input_guard.check(
+                user_input, session_id=session_id, run_id=run_id
+            )
+            if not guard_result.safe:
+                return AgentResult(
+                    analysis_text=(
+                        "I can only help with US equity portfolio questions. "
+                        "Please rephrase your request."
+                        if guard_result.category == "off_topic"
+                        else "Your message could not be processed. "
+                        "Please rephrase your request."
+                    ),
+                    metadata={
+                        "guard_blocked": True,
+                        "guard_category": guard_result.category,
+                        "guard_reason": guard_result.reason,
+                    },
+                )
+
+        agent_context = ctx.to_agent_context()
+        ctx.prepare_for_run(self._system_prompt(agent_context))
         self._record_event(
             "agent_start",
-            context,
+            agent_context,
             action_payload={"user_input": user_input, "portfolio_size": portfolio_size},
         )
         self._last_result = self._run_loop(
-            context,
+            ctx,
             progress_callback=progress_callback,
             status_callback=status_callback,
             seed_result=None,
         )
+        ctx.last_result = self._last_result
         return self._last_result
 
     def refine(
@@ -96,30 +120,48 @@ class PortfolioAgent:
         progress_callback: ProgressCallback | None = None,
         status_callback: StepStatusCallback | None = None,
     ) -> AgentResult:
-        if not self._messages:
+        if self._context is None or not self._context.messages:
             raise ValueError("Cannot refine before running the agent at least once")
 
+        if self.input_guard is not None:
+            guard_result = self.input_guard.check(
+                feedback, session_id=session_id, run_id=run_id
+            )
+            if not guard_result.safe:
+                return AgentResult(
+                    analysis_text=(
+                        "I can only help with US equity portfolio questions. "
+                        "Please rephrase your request."
+                        if guard_result.category == "off_topic"
+                        else "Your message could not be processed. "
+                        "Please rephrase your request."
+                    ),
+                    metadata={
+                        "guard_blocked": True,
+                        "guard_category": guard_result.category,
+                        "guard_reason": guard_result.reason,
+                    },
+                )
+
         previous = self._last_result
-        context = AgentContext(
-            user_input=feedback,
-            portfolio_size=float(sum(previous.allocation.values())) if previous.allocation else 0.0,
-            excluded_tickers=tuple(previous.metadata.get("excluded_tickers", [])),
-            session_id=session_id,
-            run_id=run_id,
-        )
-        self._messages.append({"role": "user", "content": feedback})
+        ctx = self._context
+        ctx.session_id = session_id
+        ctx.run_id = run_id
+        ctx.prepare_for_refine(feedback, previous)
+        agent_context = ctx.to_agent_context()
         self._record_event(
             "user_action",
-            context,
+            agent_context,
             action="refine",
             action_payload={"feedback": feedback},
         )
         self._last_result = self._run_loop(
-            context,
+            ctx,
             progress_callback=progress_callback,
             status_callback=status_callback,
             seed_result=previous,
         )
+        ctx.last_result = self._last_result
         return self._last_result
 
     def _system_prompt(self, context: AgentContext) -> str:
@@ -148,7 +190,7 @@ class PortfolioAgent:
 
     def _run_loop(
         self,
-        context: AgentContext,
+        ctx: Context,
         *,
         progress_callback: ProgressCallback | None = None,
         status_callback: StepStatusCallback | None = None,
@@ -169,15 +211,9 @@ class PortfolioAgent:
         if not massive_api_key:
             raise ValueError("Missing Massive.com API key")
         massive_client = self._massive_client_factory(massive_api_key)
-        work_state: dict[str, Any] = {
-            "tickers": list(seed_result.tickers) if seed_result else [],
-            "weights": dict(seed_result.weights) if seed_result else {},
-            "allocation": dict(seed_result.allocation) if seed_result else {},
-            "summary": seed_result.summary_text if seed_result else "",
-            "analysis": {},
-            "tool_invocations": [],
-            "reasoning_text": "",
-        }
+
+        agent_context = ctx.to_agent_context()
+        work_state = ctx.work_state
 
         for round_index in range(max_tool_rounds):
             response = self.llm_service.complete_with_tools(
@@ -185,39 +221,38 @@ class PortfolioAgent:
                 model=model,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                messages=self._messages,
+                messages=ctx.messages,
                 tools=self._tool_definitions(),
                 reasoning=reasoning_cfg,
                 response_format=self._response_format(),
-                session_id=context.session_id,
-                run_id=context.run_id,
+                session_id=ctx.session_id,
+                run_id=ctx.run_id,
             )
 
             if response.has_tool_calls:
                 if response.text:
                     work_state["reasoning_text"] = str(response.text).strip()
-                assistant_tool_message = {
-                    "role": "assistant",
-                    "content": response.text or "",
-                    "tool_calls": [
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {
-                                "name": call.name,
-                                "arguments": json.dumps(call.arguments),
-                            },
-                        }
-                        for call in response.tool_calls
-                    ],
-                }
-                self._messages.append(assistant_tool_message)
+                tool_call_dicts = [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {
+                            "name": call.name,
+                            "arguments": json.dumps(call.arguments),
+                        },
+                    }
+                    for call in response.tool_calls
+                ]
+                ctx.add_assistant_tool_calls_message(
+                    response.text or "", tool_call_dicts
+                )
                 for call in response.tool_calls:
+                    ctx.record_tool_invocation(call.name, call.arguments)
                     work_state["tool_invocations"].append({"name": call.name, "arguments": call.arguments})
                     result_payload = self._execute_tool(
                         call.name,
                         call.arguments,
-                        context=context,
+                        context=agent_context,
                         progress_callback=progress_callback,
                         status_callback=status_callback,
                         massive_client=massive_client,
@@ -227,8 +262,8 @@ class PortfolioAgent:
                         EventRecord(
                             event_type="tool_result",
                             schema_version=schema_version,
-                            session_id=context.session_id or "n/a",
-                            run_id=context.run_id or "n/a",
+                            session_id=agent_context.session_id or "n/a",
+                            run_id=agent_context.run_id or "n/a",
                             tool_name=call.name,
                             tool_arguments=call.arguments,
                             tool_result=result_payload,
@@ -236,30 +271,23 @@ class PortfolioAgent:
                             agent_round=round_index + 1,
                         )
                     )
-                    self._messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call.id,
-                            "name": call.name,
-                            "content": json.dumps(result_payload),
-                        }
-                    )
+                    ctx.add_tool_result_message(call.id, call.name, result_payload)
                 continue
 
-            self._messages.append({"role": "assistant", "content": response.text or ""})
+            ctx.add_message("assistant", response.text or "")
             if response.text:
                 work_state["reasoning_text"] = str(response.text).strip()
             result = self._parse_final_result(response.text or "", work_state=work_state)
-            result.messages = list(self._messages)
+            result.messages = list(ctx.messages)
             if "excluded_tickers" not in result.metadata:
-                result.metadata["excluded_tickers"] = list(context.excluded_tickers)
+                result.metadata["excluded_tickers"] = list(agent_context.excluded_tickers)
             if work_state["tool_invocations"]:
                 result.metadata["tool_invocations"] = list(work_state["tool_invocations"])
             if work_state.get("reasoning_text"):
                 result.metadata["reasoning_text"] = work_state["reasoning_text"]
             self._record_event(
                 "agent_complete",
-                context,
+                agent_context,
                 action_payload={"tickers": result.tickers, "weights": result.weights},
             )
             return result
