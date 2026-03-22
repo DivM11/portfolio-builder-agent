@@ -25,15 +25,15 @@ flowchart TD
     Dev(["🛠️ Developer"])
 
     subgraph External["External APIs"]
-        OR["OpenRouter\nLLM API"]
-        MC["Massive.com\nMarket Data"]
+        OR["OpenRouter LLM API"]
+        MC["Massive.com Market Data"]
     end
 
     subgraph Compose["Docker Compose  •  shared event-data volume"]
         direction TB
 
         subgraph AppSvc["app  :8501"]
-            UI["Streamlit\nDashboard"]
+            UI["Streamlit Dashboard"]
             Guard["InputGuard"]
             Agent["PortfolioAgent"]
             LLM["LLMService"]
@@ -47,11 +47,11 @@ flowchart TD
         end
 
         subgraph MonAPI["monitor-api  :8000"]
-            FA["FastAPI\n/events  /llm-calls\n/tool-calls  /agent-performance"]
+            FA["FastAPI /events  /llm-calls /tool-calls  /agent-performance"]
         end
 
         subgraph MonUI["monitor-ui  :8502"]
-            MUI["Streamlit\nMonitoring Dashboard"]
+            MUI["Streamlit Monitoring Dashboard"]
         end
     end
 
@@ -64,7 +64,7 @@ flowchart TD
 
     LLM -- "LLMCallRecord" --> T2
     Agent -- "ToolCallRecord" --> T3
-    Agent -- "AgentPerformanceRecord\n(ETL)" --> T4
+    Agent -- "AgentPerformanceRecord (ETL)" --> T4
     LLM -- "EventRecord" --> T1
 
     T1 & T2 & T3 & T4 --> FA
@@ -85,7 +85,7 @@ flowchart LR
     C --> D["allocate_weights"]
     D --> E["analyze_portfolio"]
     E -->|"more rounds needed"| A
-    E -->|"final result"| R(["AgentResult\ntickers · weights\nallocation · suggestions"])
+    E -->|"final result"| R(["AgentResult tickers · weights allocation · suggestions"])
 ```
 
 The final output is a structured `AgentResult` containing tickers, weights, allocation, analysis text, and suggestions (`add / remove / reweight`).
