@@ -17,11 +17,76 @@ A built-in **monitoring stack** records every LLM call, tool invocation, and age
 - **Monitoring REST API** — Query live data over HTTP with Swagger UI at `/docs` (port 8000).
 - **Monitoring dashboard** — Separate Streamlit UI with filterable dataframes and summary metrics (port 8502).
 
+## System Architecture
+
+```mermaid
+flowchart TD
+    User(["👤 User"])
+    Dev(["🛠️ Developer"])
+
+    subgraph External["External APIs"]
+        OR["OpenRouter\nLLM API"]
+        MC["Massive.com\nMarket Data"]
+    end
+
+    subgraph Compose["Docker Compose  •  shared event-data volume"]
+        direction TB
+
+        subgraph AppSvc["app  :8501"]
+            UI["Streamlit\nDashboard"]
+            Guard["InputGuard"]
+            Agent["PortfolioAgent"]
+            LLM["LLMService"]
+        end
+
+        subgraph Store["SQLite  data/events.db"]
+            T1[("events")]
+            T2[("llm_calls")]
+            T3[("tool_calls")]
+            T4[("agent_performance")]
+        end
+
+        subgraph MonAPI["monitor-api  :8000"]
+            FA["FastAPI\n/events  /llm-calls\n/tool-calls  /agent-performance"]
+        end
+
+        subgraph MonUI["monitor-ui  :8502"]
+            MUI["Streamlit\nMonitoring Dashboard"]
+        end
+    end
+
+    User -- "portfolio request" --> UI
+    UI --> Guard
+    Guard -- "passes" --> Agent
+    Agent -- "tool calls" --> LLM
+    LLM -- "HTTP" --> OR
+    Agent -- "fetch data" --> MC
+
+    LLM -- "LLMCallRecord" --> T2
+    Agent -- "ToolCallRecord" --> T3
+    Agent -- "AgentPerformanceRecord\n(ETL)" --> T4
+    LLM -- "EventRecord" --> T1
+
+    T1 & T2 & T3 & T4 --> FA
+    FA --> MUI
+
+    User -- "view metrics  :8502" --> MUI
+    Dev -- "REST queries  :8000" --> FA
+```
+
 ## Agent Design
 
 A single `PortfolioAgent` runs an iterative **tool loop**, calling five tools in sequence:
 
-> `generate_tickers` → `fetch_ticker_data` → `build_summary` → `allocate_weights` → `analyze_portfolio`
+```mermaid
+flowchart LR
+    A["generate_tickers"] --> B["fetch_ticker_data"]
+    B --> C["build_summary"]
+    C --> D["allocate_weights"]
+    D --> E["analyze_portfolio"]
+    E -->|"more rounds needed"| A
+    E -->|"final result"| R(["AgentResult\ntickers · weights\nallocation · suggestions"])
+```
 
 The final output is a structured `AgentResult` containing tickers, weights, allocation, analysis text, and suggestions (`add / remove / reweight`).
 
