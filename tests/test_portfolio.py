@@ -41,3 +41,21 @@ def test_allocate_portfolio_by_weights():
 
     assert round(sum(allocation.values()), 2) == 500.0
     assert allocation["NVDA"] >= allocation["AMD"]
+
+
+def test_normalize_weights_empty_tickers_returns_empty() -> None:
+    assert normalize_weights({"AAPL": 1.0}, []) == {}
+
+
+def test_normalize_weights_non_positive_total_falls_back_to_equal() -> None:
+    normalized = normalize_weights({"AAPL": -1.0, "MSFT": 0.0}, ["AAPL", "MSFT"])
+
+    assert normalized == {"AAPL": 0.5, "MSFT": 0.5}
+
+
+def test_allocate_portfolio_by_weights_non_positive_total_returns_empty() -> None:
+    assert allocate_portfolio_by_weights(["AAPL"], total_amount=0.0, weights={"AAPL": 1.0}) == {}
+
+
+def test_format_portfolio_allocation_empty() -> None:
+    assert format_portfolio_allocation({}) == "Recommended Portfolio: (none)"

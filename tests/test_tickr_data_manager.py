@@ -81,3 +81,57 @@ def test_tickr_data_manager_passes_client_keyword_to_fetcher():
         "ticker": "AAPL",
         "history_period": "1y",
     }
+
+
+def test_tickr_data_manager_progress_callback_called_for_each_ticker() -> None:
+    manager = TickrDataManager()
+    seen: list[tuple[int, int, str]] = []
+
+    def _progress(current: int, total: int, ticker: str) -> None:
+        seen.append((current, total, ticker))
+
+    def fetcher(**_kwargs):
+        return _payload([10.0], status="ok")
+
+    manager.fetch_for_tickers(
+        tickers=["AAPL", "MSFT"],
+        fetcher=fetcher,
+        history_period="1y",
+        massive_client=object(),
+        progress_callback=_progress,
+    )
+
+    assert seen == [(0, 2, "AAPL"), (1, 2, "MSFT")]
+
+
+def test_tickr_data_manager_fetch_exception_marked_unexpected_error() -> None:
+    manager = TickrDataManager()
+
+    def fetcher(**_kwargs):
+        raise RuntimeError("boom")
+
+    result = manager.fetch_for_tickers(
+        tickers=["AAPL"],
+        fetcher=fetcher,
+        history_period="1y",
+        massive_client=object(),
+    )
+
+    assert result.tickers_with_history == []
+    assert result.failed_history_by_status["unexpected_error"] == ["AAPL"]
+
+
+def test_tickr_data_manager_unknown_history_status_falls_back_to_unexpected_error() -> None:
+    manager = TickrDataManager()
+
+    def fetcher(**_kwargs):
+        return _payload([], status="custom_status")
+
+    result = manager.fetch_for_tickers(
+        tickers=["AAPL"],
+        fetcher=fetcher,
+        history_period="1y",
+        massive_client=object(),
+    )
+
+    assert result.failed_history_by_status["unexpected_error"] == ["AAPL"]

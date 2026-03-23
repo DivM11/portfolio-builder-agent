@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from src.plots import plot_history, plot_portfolio_allocation
+from src.plots import plot_history, plot_portfolio_allocation, plot_portfolio_returns
 
 
 def _history_df() -> pd.DataFrame:
@@ -60,3 +60,26 @@ def test_plot_portfolio_allocation_empty():
     fig = plot_portfolio_allocation({})
 
     assert fig is None
+
+
+def test_plot_history_empty_input_returns_none() -> None:
+    assert plot_history({}) is None
+
+
+def test_plot_history_skips_series_without_close_column() -> None:
+    history = {"AAPL": pd.DataFrame({"Open": [1.0, 2.0]})}
+
+    assert plot_history(history) is None
+
+
+def test_plot_portfolio_returns_returns_figure() -> None:
+    series = pd.Series([1.0, 1.1, 1.2], index=pd.date_range("2024-01-01", periods=3, freq="D"))
+
+    fig = plot_portfolio_returns(series, "Growth")
+
+    assert fig is not None
+    assert len(fig.data) == 1
+
+
+def test_plot_portfolio_returns_empty_returns_none() -> None:
+    assert plot_portfolio_returns(pd.Series(dtype=float), "Growth") is None

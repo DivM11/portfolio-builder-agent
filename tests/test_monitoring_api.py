@@ -174,6 +174,17 @@ def test_get_tool_calls_filters_tool_name(tmp_path: Path, monkeypatch) -> None:
     assert rows[0]["id"] == "t2"
 
 
+def test_get_tool_calls_filters_by_run_id(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "events.db"
+    _create_monitoring_db(db_path)
+    monkeypatch.setattr(monitoring_api, "_DB_PATH", db_path)
+
+    rows = monitoring_api.get_tool_calls(session_id=None, run_id="r1", tool_name=None, limit=10)
+
+    assert len(rows) == 1
+    assert rows[0]["id"] == "t1"
+
+
 def test_get_agent_performance_filters_status(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "events.db"
     _create_monitoring_db(db_path)
@@ -183,3 +194,14 @@ def test_get_agent_performance_filters_status(tmp_path: Path, monkeypatch) -> No
 
     assert len(rows) == 1
     assert rows[0]["id"] == "p1"
+
+
+def test_get_agent_performance_filters_session_and_run_id(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "events.db"
+    _create_monitoring_db(db_path)
+    monkeypatch.setattr(monitoring_api, "_DB_PATH", db_path)
+
+    rows = monitoring_api.get_agent_performance(session_id="s2", run_id="r2", status=None, limit=10)
+
+    assert len(rows) == 1
+    assert rows[0]["id"] == "p2"

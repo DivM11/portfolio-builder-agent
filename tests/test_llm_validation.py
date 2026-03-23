@@ -91,3 +91,27 @@ def test_parse_weights_payload_empty_string():
 
 def test_parse_weights_payload_none_input():
     assert parse_weights_payload(None) == {}
+
+
+def test_extract_valid_tickers_custom_delimiter() -> None:
+    tickers = extract_valid_tickers("AAPL::MSFT::INVALID", delimiter="::")
+
+    assert tickers == ["AAPL", "MSFT", "INVALID"]
+
+
+def test_parse_weights_payload_list_shape() -> None:
+    result = parse_weights_payload(
+        '```json\n[{"ticker":"aapl","weight":0.6},{"ticker":"msft","weight":"0.4"}]\n```'
+    )
+
+    assert result == {"AAPL": 0.6, "MSFT": 0.4}
+
+
+def test_parse_evaluator_suggestions_non_dict_candidate_returns_empty() -> None:
+    assert parse_evaluator_suggestions('{"changes": []}') == {}
+
+
+def test_parse_evaluator_suggestions_ignores_bad_reweight_values() -> None:
+    result = parse_evaluator_suggestions('{"reweight": {"AAPL": "oops", "MSFT": 0.2}}')
+
+    assert result["reweight"] == {"MSFT": 0.2}
