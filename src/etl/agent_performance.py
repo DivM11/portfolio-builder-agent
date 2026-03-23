@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -48,17 +48,14 @@ def materialise_agent_performance(
     total_llm_calls = len(llm_calls)
     total_tool_calls = len(tool_calls)
     total_latency_ms = sum(c.latency_ms or 0.0 for c in llm_calls)
-    total_tokens = sum(
-        int((c.token_usage or {}).get("total_tokens", 0))
-        for c in llm_calls
-    )
+    total_tokens = sum(int((c.token_usage or {}).get("total_tokens", 0)) for c in llm_calls)
     total_iterations = max((c.agent_round or 0 for c in tool_calls), default=0)
 
     record = AgentPerformanceRecord(
         id=str(uuid4()),
         session_id=session_id,
         run_id=run_id,
-        timestamp=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+        timestamp=datetime.now(UTC).isoformat(timespec="milliseconds"),
         model=model or None,
         total_llm_calls=total_llm_calls,
         total_tool_calls=total_tool_calls,

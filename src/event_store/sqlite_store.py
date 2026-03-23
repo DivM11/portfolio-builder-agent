@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from src.event_store.models import AgentPerformanceRecord, EventRecord, LLMCallRecord, ToolCallRecord
 
@@ -148,15 +146,9 @@ class SQLiteEventStore:
             )
             """
         )
-        self._connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agent_perf_session ON agent_performance(session_id)"
-        )
-        self._connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agent_perf_ts ON agent_performance(timestamp)"
-        )
-        self._connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_agent_perf_status ON agent_performance(status)"
-        )
+        self._connection.execute("CREATE INDEX IF NOT EXISTS idx_agent_perf_session ON agent_performance(session_id)")
+        self._connection.execute("CREATE INDEX IF NOT EXISTS idx_agent_perf_ts ON agent_performance(timestamp)")
+        self._connection.execute("CREATE INDEX IF NOT EXISTS idx_agent_perf_status ON agent_performance(status)")
         self._connection.commit()
 
     def _ensure_columns(self, required: dict[str, str]) -> None:

@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple
+from typing import Any
 
 from src.summaries import build_portfolio_summary
 
 
 @dataclass
 class TickrSummaryManager:
-    cache: Dict[Tuple[Tuple[str, ...], int], str] = field(default_factory=dict)
+    cache: dict[tuple[tuple[str, ...], int], str] = field(default_factory=dict)
 
     def build_or_get_summary(
         self,
         *,
-        tickers: List[str],
-        data_by_ticker,
+        tickers: list[str],
+        data_by_ticker: dict[str, dict[str, Any]],
         data_version: int,
     ) -> str:
         key = (tuple(sorted(tickers)), data_version)

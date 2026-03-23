@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Optional
+from collections.abc import Iterable
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -15,9 +15,9 @@ def _apply_gridlines(fig: Figure) -> None:
 
 
 def plot_history(
-    history_by_ticker: Dict[str, pd.DataFrame],
-    selected_tickers: Optional[Iterable[str]] = None,
-) -> Optional[Figure]:
+    history_by_ticker: dict[str, pd.DataFrame],
+    selected_tickers: Iterable[str] | None = None,
+) -> Figure | None:
     """Plot closing price history for each ticker on a single chart."""
     if not history_by_ticker:
         return None
@@ -68,7 +68,7 @@ def plot_history(
     return fig
 
 
-def plot_portfolio_returns(portfolio_series: pd.Series, title: str) -> Optional[Figure]:
+def plot_portfolio_returns(portfolio_series: pd.Series, title: str) -> Figure | None:
     if portfolio_series is None or portfolio_series.empty:
         return None
 
@@ -91,9 +91,9 @@ def plot_portfolio_returns(portfolio_series: pd.Series, title: str) -> Optional[
 
 
 def plot_portfolio_allocation(
-    allocation: Dict[str, float],
+    allocation: dict[str, float],
     title: str = "Recommended Portfolio",
-) -> Optional[Figure]:
+) -> Figure | None:
     """Vertical bar chart showing dollar allocation per ticker with annotations."""
     if not allocation:
         return None

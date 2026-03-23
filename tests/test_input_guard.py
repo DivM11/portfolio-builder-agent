@@ -8,10 +8,10 @@ from src.event_store.base import EventStore
 from src.event_store.models import EventRecord
 from src.input_guard import InputGuard, InputGuardResult
 
-
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
+
 
 class RecordingEventStore(EventStore):
     def __init__(self) -> None:
@@ -55,6 +55,7 @@ class ErrorLLMService:
 # Tests — InputGuardResult
 # ---------------------------------------------------------------------------
 
+
 def test_guard_result_safe() -> None:
     r = InputGuardResult(safe=True, category="safe", reason="")
     assert r.safe is True
@@ -69,6 +70,7 @@ def test_guard_result_injection() -> None:
 # ---------------------------------------------------------------------------
 # Tests — InputGuard.check()
 # ---------------------------------------------------------------------------
+
 
 def test_safe_input_passes() -> None:
     guard = InputGuard(StubLLMService("safe"), _guard_config())
@@ -120,6 +122,7 @@ def test_llm_error_fails_closed() -> None:
 # Tests — LLM call pattern matches repo conventions
 # ---------------------------------------------------------------------------
 
+
 def test_check_uses_complete_with_expected_params() -> None:
     llm = StubLLMService("safe")
     guard = InputGuard(llm, _guard_config())
@@ -152,6 +155,7 @@ def test_check_records_events() -> None:
 # Tests — malformed LLM output
 # ---------------------------------------------------------------------------
 
+
 def test_json_parse_failure_fails_closed() -> None:
     """If LLM returns non-JSON, guard should reject."""
 
@@ -159,6 +163,7 @@ def test_json_parse_failure_fails_closed() -> None:
         def complete(self, **kwargs):
             class _R:
                 choices = [type("C", (), {"message": type("M", (), {"content": "not json"})()})]
+
             return _R(), 200
 
     guard = InputGuard(BadLLM(), _guard_config())
@@ -176,6 +181,7 @@ def test_missing_classification_key_fails_closed() -> None:
         def complete(self, **kwargs):
             class _R:
                 choices = [type("C", (), {"message": type("M", (), {"content": json.dumps({"other": "x"})})()})]
+
             return _R(), 200
 
     guard = InputGuard(PartialLLM(), _guard_config())
@@ -189,6 +195,7 @@ def test_missing_classification_key_fails_closed() -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _guard_config() -> dict:
     return {

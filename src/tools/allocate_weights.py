@@ -41,11 +41,7 @@ def allocate_weights_tool(arguments: dict[str, Any]) -> dict[str, Any]:
     weights_raw = arguments.get("weights", {})
     if not isinstance(weights_raw, dict):
         weights_raw = {}
-    weights = {
-        str(ticker).upper(): float(value)
-        for ticker, value in weights_raw.items()
-        if str(ticker).strip()
-    }
+    weights = {str(ticker).upper(): float(value) for ticker, value in weights_raw.items() if str(ticker).strip()}
     portfolio_size = float(arguments.get("portfolio_size", 0.0))
     normalized = normalize_weights(weights, tickers)
     allocation = allocate_portfolio_by_weights(tickers, portfolio_size, normalized)

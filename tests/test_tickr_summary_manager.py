@@ -7,9 +7,7 @@ from src.tickr_summary_manager import TickrSummaryManager
 
 def test_summary_manager_uses_cache_per_version():
     manager = TickrSummaryManager()
-    data = {
-        "AAPL": {"history": pd.DataFrame({"Close": [1.0, 2.0]})}
-    }
+    data = {"AAPL": {"history": pd.DataFrame({"Close": [1.0, 2.0]})}}
 
     first = manager.build_or_get_summary(
         tickers=["AAPL"],

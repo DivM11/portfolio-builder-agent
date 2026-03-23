@@ -6,8 +6,9 @@ import contextvars
 import json
 import logging
 import sys
-from datetime import datetime, timezone
-from typing import Any, Mapping, TextIO
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any, TextIO
 
 session_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("session_id", default="n/a")
 run_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("run_id", default="n/a")
@@ -38,7 +39,7 @@ class JsonFormatter(logging.Formatter):
             "run_id": getattr(record, "run_id", "n/a"),
         }
         if self.include_timestamps:
-            payload["timestamp"] = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+            payload["timestamp"] = datetime.now(UTC).isoformat(timespec="milliseconds")
         return json.dumps(payload, separators=(",", ":"))
 
 
@@ -66,9 +67,7 @@ def configure_logging(config: Mapping[str, Any] | None = None, *, stream: TextIO
         handler.setFormatter(JsonFormatter(include_timestamps=include_timestamps))
     else:
         handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s %(levelname)s %(name)s [session=%(session_id)s run=%(run_id)s] %(message)s"
-            )
+            logging.Formatter("%(asctime)s %(levelname)s %(name)s [session=%(session_id)s run=%(run_id)s] %(message)s")
         )
 
     root = logging.getLogger()

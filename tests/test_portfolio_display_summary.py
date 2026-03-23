@@ -1,5 +1,7 @@
 """Unit tests for portfolio display summary formatting."""
 
+import pytest
+
 from src.portfolio_display_summary import PortfolioDisplaySummary
 
 
@@ -19,23 +21,16 @@ def test_format_suggestions_human_readable():
     assert "MSFT: 15.00%" in text
 
 
-def test_format_suggestions_no_changes_when_all_empty():
+@pytest.mark.parametrize("payload", [{"add": [], "remove": [], "reweight": {}}, {}])
+def test_format_suggestions_no_changes(payload):
     summary = PortfolioDisplaySummary()
-    text = summary.format_suggestions({"add": [], "remove": [], "reweight": {}})
-    assert text == "No suggested changes."
-
-
-def test_format_suggestions_no_changes_when_empty_dict():
-    summary = PortfolioDisplaySummary()
-    text = summary.format_suggestions({})
+    text = summary.format_suggestions(payload)
     assert text == "No suggested changes."
 
 
 def test_format_suggestions_shows_reweight_when_present():
     summary = PortfolioDisplaySummary()
-    text = summary.format_suggestions(
-        {"add": [], "remove": [], "reweight": {"AAPL": 0.6, "MSFT": 0.4}}
-    )
+    text = summary.format_suggestions({"add": [], "remove": [], "reweight": {"AAPL": 0.6, "MSFT": 0.4}})
     assert "Reweight:" in text
     assert "AAPL: 60.00%" in text
 

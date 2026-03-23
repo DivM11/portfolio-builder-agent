@@ -4,9 +4,9 @@ import pandas as pd
 
 from src.summaries import (
     build_portfolio_returns_series,
+    build_ticker_summary,
     summarize_history_stats,
     summarize_portfolio_stats,
-    build_ticker_summary,
 )
 
 

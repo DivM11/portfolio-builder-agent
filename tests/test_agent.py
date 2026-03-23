@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+
 import pandas as pd
 
 from src.agent import PortfolioAgent
@@ -194,7 +195,15 @@ def test_execute_tool_analyze_builds_summary_if_missing() -> None:
         },
     }
     context = AgentContext(user_input="u", portfolio_size=1000.0, session_id="s", run_id="r")
-    work_state = {"summary": "", "tickers": ["AAPL", "MSFT"], "weights": {}, "allocation": {}, "analysis": {}, "tool_invocations": [], "reasoning_text": ""}
+    work_state = {
+        "summary": "",
+        "tickers": ["AAPL", "MSFT"],
+        "weights": {},
+        "allocation": {},
+        "analysis": {},
+        "tool_invocations": [],
+        "reasoning_text": "",
+    }
 
     payload = agent._execute_tool(
         "analyze_portfolio",
@@ -212,7 +221,13 @@ def test_execute_tool_analyze_builds_summary_if_missing() -> None:
 
 def test_agent_run_passes_reasoning_config_to_llm() -> None:
     cfg = _base_config()
-    cfg["agent"] = {"model": "anthropic/claude-sonnet-4.5", "max_tokens": 128, "temperature": 0.2, "max_tool_rounds": 1, "reasoning": {"effort": "high", "exclude": False}}
+    cfg["agent"] = {
+        "model": "anthropic/claude-sonnet-4.5",
+        "max_tokens": 128,
+        "temperature": 0.2,
+        "max_tool_rounds": 1,
+        "reasoning": {"effort": "high", "exclude": False},
+    }
     llm = CaptureLLMService()
 
     agent = PortfolioAgent(
@@ -222,8 +237,8 @@ def test_agent_run_passes_reasoning_config_to_llm() -> None:
         stock_data_fetcher=lambda **_kwargs: {},
     )
     agent.tickr_data_manager.cache = {
-        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})} ,
-        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})} ,
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})},
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})},
     }
 
     agent.run(user_input="u", portfolio_size=1000.0)
@@ -270,8 +285,8 @@ def test_refine_preserves_previous_portfolio_when_output_partial() -> None:
         stock_data_fetcher=lambda **_kwargs: {},
     )
     agent.tickr_data_manager.cache = {
-        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})} ,
-        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})} ,
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})},
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})},
     }
 
     initial = agent.run(user_input="u", portfolio_size=1000.0)
@@ -285,6 +300,7 @@ def test_refine_preserves_previous_portfolio_when_output_partial() -> None:
 # ---------------------------------------------------------------------------
 # InputGuard integration tests
 # ---------------------------------------------------------------------------
+
 
 class FakeGuardResult:
     def __init__(self, safe: bool, category: str, reason: str = "") -> None:
@@ -409,6 +425,7 @@ def test_agent_without_guard_skips_check() -> None:
 # ---------------------------------------------------------------------------
 # MonitoringStore integration — record_tool_call and agent_performance
 # ---------------------------------------------------------------------------
+
 
 class ToolCallLLMService:
     """Returns one tool-call round then a final JSON result."""
@@ -561,4 +578,3 @@ def test_run_does_not_emit_monitoring_records_to_plain_event_store() -> None:
 
     # Only legacy EventRecord events in the plain store — no ToolCallRecord
     assert all(isinstance(e, EventRecord) for e in store.events)
-

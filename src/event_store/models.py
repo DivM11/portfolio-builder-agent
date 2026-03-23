@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 @dataclass
@@ -39,9 +39,7 @@ class EventRecord:
     agent_round: int | None = None
     schema_version: int = 1
     event_id: str = field(default_factory=lambda: str(uuid4()))
-    timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-    )
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat(timespec="milliseconds"))
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

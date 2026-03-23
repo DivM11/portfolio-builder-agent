@@ -26,10 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(
     title="Portfolio Agent Monitoring API",
     version="1.0.0",
-    description=(
-        "Read-only query interface for the SQLite event store. "
-        "Interactive docs available at /docs."
-    ),
+    description=("Read-only query interface for the SQLite event store. Interactive docs available at /docs."),
 )
 
 app.add_middleware(
@@ -45,6 +42,7 @@ _DB_PATH = Path(os.environ.get("DB_PATH", "data/events.db"))
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _connect() -> sqlite3.Connection:
     if not _DB_PATH.exists():
@@ -73,6 +71,7 @@ def _where(clauses: list[str]) -> str:
 # Meta endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.get("/health", tags=["meta"])
 def health() -> dict[str, Any]:
     """Liveness check — returns DB path and whether the file exists."""
@@ -86,6 +85,7 @@ def health() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Table endpoints
 # ---------------------------------------------------------------------------
+
 
 @app.get("/events", tags=["tables"])
 def get_events(
@@ -165,9 +165,7 @@ def get_tool_calls(
 def get_agent_performance(
     session_id: str | None = Query(None),
     run_id: str | None = Query(None),
-    status: str | None = Query(
-        None, description="completed | error | guard_blocked"
-    ),
+    status: str | None = Query(None, description="completed | error | guard_blocked"),
     limit: int = Query(200, ge=1, le=5000),
 ) -> list[dict[str, Any]]:
     """Return rows from the **agent_performance** table (one ETL row per completed run)."""

@@ -1,17 +1,19 @@
 """Unit tests for the Massive.com data client module."""
 
-import pandas as pd
-
 from src.data_client import (
+    HISTORY_STATUS_NOT_FOUND,
+    HISTORY_STATUS_RATE_LIMITED,
+    HISTORY_STATUS_UNEXPECTED_ERROR,
     create_massive_client,
     fetch_price_history,
+    fetch_price_history_with_status,
     fetch_stock_data,
 )
-
 
 # ---------------------------------------------------------------------------
 # Stubs for Massive.com SDK objects
 # ---------------------------------------------------------------------------
+
 
 class DummyAgg:
     def __init__(self, o, h, l, c, v, ts):  # noqa: E741
@@ -53,6 +55,15 @@ class DummyEmptyVx:
     pass
 
 
+class ErrorClient:
+    def __init__(self, message: str):
+        self.vx = DummyVx()
+        self._message = message
+
+    def list_aggs(self, **_kwargs):
+        raise RuntimeError(self._message)
+
+
 # ---------------------------------------------------------------------------
 # Tests — price history
 # ---------------------------------------------------------------------------
@@ -84,9 +95,38 @@ def test_fetch_price_history_unknown_period():
 
     assert not df.empty
 
+
+def test_fetch_price_history_with_status_rate_limited() -> None:
+    client = ErrorClient("429 too many requests")
+
+    df, status = fetch_price_history_with_status(client, "AAPL", period="1y")
+
+    assert df.empty
+    assert status == HISTORY_STATUS_RATE_LIMITED
+
+
+def test_fetch_price_history_with_status_not_found() -> None:
+    client = ErrorClient("404 not found")
+
+    df, status = fetch_price_history_with_status(client, "MISSING", period="1y")
+
+    assert df.empty
+    assert status == HISTORY_STATUS_NOT_FOUND
+
+
+def test_fetch_price_history_with_status_unexpected_error() -> None:
+    client = ErrorClient("connection reset")
+
+    df, status = fetch_price_history_with_status(client, "AAPL", period="1y")
+
+    assert df.empty
+    assert status == HISTORY_STATUS_UNEXPECTED_ERROR
+
+
 # ---------------------------------------------------------------------------
 # Tests — high-level fetch_stock_data
 # ---------------------------------------------------------------------------
+
 
 def test_fetch_stock_data_returns_all_keys():
     client = DummyMassiveClient()
@@ -95,6 +135,7 @@ def test_fetch_stock_data_returns_all_keys():
     assert set(data.keys()) == {"history", "history_status"}
     assert not data["history"].empty
     assert data["history_status"] == "ok"
+
 
 def test_create_massive_client_calls_rest_client(monkeypatch):
     class FakeRESTClient:

@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import re
 import uuid
-from typing import Any, Dict, Optional
+from collections.abc import Iterator
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -50,27 +51,26 @@ def _get_session_id() -> str:
 
 
 def _df_to_csv_bytes(df: pd.DataFrame) -> bytes:
-    return df.to_csv().encode("utf-8")
+    return str(df.to_csv()).encode("utf-8")
 
 
-def _chat_avatar(role: str) -> Optional[str]:
+def _chat_avatar(role: str) -> str | None:
     if role == "assistant":
         return "img/bot.png"
     return None
 
 
-def _stream_once(content: str):
+def _stream_once(content: str) -> Iterator[str]:
     yield content
 
 
-def _push_chat_message(role: str, content: str, container) -> None:
+def _push_chat_message(role: str, content: str, container: Any) -> None:
     st.session_state["messages"].append({"role": role, "content": content})
-    with container:
-        with st.chat_message(role, avatar=_chat_avatar(role)):
-            if role == "assistant" and hasattr(st, "write_stream"):
-                st.write_stream(_stream_once(content))
-            else:
-                st.markdown(content)
+    with container, st.chat_message(role, avatar=_chat_avatar(role)):
+        if role == "assistant" and hasattr(st, "write_stream"):
+            st.write_stream(_stream_once(content))
+        else:
+            st.markdown(content)
 
 
 def _strip_json_block(text: str) -> str:
@@ -88,7 +88,9 @@ def _clean_reasoning_text(reasoning_text: str) -> str:
     return cleaned.strip()
 
 
-def _build_allocation_table(tickers: list[str], weights: dict[str, float], allocation: dict[str, float]) -> pd.DataFrame:
+def _build_allocation_table(
+    tickers: list[str], weights: dict[str, float], allocation: dict[str, float]
+) -> pd.DataFrame:
     rows = []
     for ticker in tickers:
         rows.append(
@@ -98,7 +100,7 @@ def _build_allocation_table(tickers: list[str], weights: dict[str, float], alloc
                 "Allocation": float(allocation.get(ticker, 0.0)),
             }
         )
-    
+
     return pd.DataFrame(rows)
 
 
@@ -117,14 +119,13 @@ def _format_suggestions_text(suggestions: dict[str, Any], weights: dict[str, flo
     remove = suggestions.get("remove", [])
     reweight = suggestions.get("reweight", {})
 
-    if not add and not remove:
-        if not reweight or _weights_match(reweight, weights):
-            return "No suggested changes."
+    if not add and not remove and (not reweight or _weights_match(reweight, weights)):
+        return "No suggested changes."
 
     return PortfolioDisplaySummary().format_suggestions(suggestions)
 
 
-def _render_current_portfolio_sections(container, ui: Dict[str, Any]) -> None:
+def _render_current_portfolio_sections(container: Any, ui: dict[str, Any]) -> None:
     allocation_df = st.session_state.get("allocation_table_df")
     if isinstance(allocation_df, pd.DataFrame) and not allocation_df.empty:
         with container:
@@ -200,7 +201,9 @@ def _apply_agent_result(result: AgentResult) -> None:
     portfolio_size = float(st.session_state.get("portfolio_size", 0.0))
     allocation = dict(result.allocation)
     total_allocation = float(sum(allocation.values())) if allocation else 0.0
-    has_valid_allocation = allocation and portfolio_size > 0 and abs(total_allocation - portfolio_size) <= max(1.0, portfolio_size * 0.01)
+    has_valid_allocation = (
+        allocation and portfolio_size > 0 and abs(total_allocation - portfolio_size) <= max(1.0, portfolio_size * 0.01)
+    )
     if not has_valid_allocation:
         allocation = allocate_portfolio_by_weights(
             tickers,
@@ -227,13 +230,12 @@ def _apply_agent_result(result: AgentResult) -> None:
     st.session_state["portfolio_stats"] = summarize_portfolio_stats(portfolio_series)
 
 
-def run_dashboard(config: Dict[str, Any]) -> None:
+def run_dashboard(config: dict[str, Any]) -> None:
     st.title(config["app"]["title"])
 
     ui = config["ui"]
     dashboard = config["dashboard"]
     openrouter_cfg = config["openrouter"]
-    stocks_cfg = config["stocks"]
 
     _init_state(dashboard["default_user_input"], dashboard["default_portfolio_size"], ui["chat_intro"])
     session_id = _get_session_id()
@@ -323,7 +325,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             event_store=st.session_state["event_store"],
             schema_version=int(config.get("event_store", {}).get("schema_version", 1)),
         )
-        agent = PortfolioAgent(
+        portfolio_agent = PortfolioAgent(
             llm_service=llm_service,
             config=config,
             event_store=st.session_state["event_store"],
@@ -332,9 +334,9 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             massive_client_factory=create_massive_client,
             stock_data_fetcher=fetch_stock_data,
         )
-        st.session_state["portfolio_agent"] = agent
+        st.session_state["portfolio_agent"] = portfolio_agent
 
-        progress_holder: Dict[str, Any] = {}
+        progress_holder: dict[str, Any] = {}
         progress_start_text = ui.get("fetch_progress_start", "Fetching ticker data...")
         progress_ticker_template = ui.get("fetch_progress_ticker", "Fetching {ticker} ({current}/{total})")
         weights_progress_text = ui.get("weights_progress_text", "Computing portfolio weights...")
@@ -362,7 +364,7 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         try:
             with chat_tab:
                 progress_holder["bar"] = st.progress(0.0, text=progress_start_text)
-            result = agent.run(
+            result = portfolio_agent.run(
                 user_input=prompt_input,
                 portfolio_size=st.session_state["portfolio_size"],
                 excluded_tickers=list(st.session_state.get("excluded_tickers", [])),
@@ -389,7 +391,9 @@ def run_dashboard(config: Dict[str, Any]) -> None:
         _apply_agent_result(result)
         st.session_state["awaiting_user_decision"] = bool(result.weights or result.suggestions)
         if result.tickers:
-            _push_chat_message("assistant", ui["ticker_reply_template"].format(tickers=", ".join(result.tickers)), chat_tab)
+            _push_chat_message(
+                "assistant", ui["ticker_reply_template"].format(tickers=", ".join(result.tickers)), chat_tab
+            )
         _render_current_portfolio_sections(chat_tab, ui)
         _push_chat_message("assistant", ui["post_analysis_nudge"], chat_tab)
         st.rerun()
@@ -414,7 +418,10 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             st.session_state["awaiting_user_decision"] = bool(updated.suggestions)
             if updated.analysis_text:
                 st.session_state["messages"].append(
-                    {"role": "assistant", "content": "Portfolio updated. Review the latest analysis and suggestions below."}
+                    {
+                        "role": "assistant",
+                        "content": "Portfolio updated. Review the latest analysis and suggestions below.",
+                    }
                 )
             st.rerun()
 
@@ -422,7 +429,10 @@ def run_dashboard(config: Dict[str, Any]) -> None:
             st.session_state["pending_suggestions"] = {}
             st.session_state["awaiting_user_decision"] = False
             st.session_state["messages"].append(
-                {"role": "assistant", "content": ui.get("evaluator_rejected", "Keeping current portfolio without changes.")}
+                {
+                    "role": "assistant",
+                    "content": ui.get("evaluator_rejected", "Keeping current portfolio without changes."),
+                }
             )
             st.rerun()
 

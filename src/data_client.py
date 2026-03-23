@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import pandas as pd
 from massive import RESTClient
@@ -18,7 +18,7 @@ HISTORY_STATUS_EMPTY_DATA = "empty_data"
 HISTORY_STATUS_UNEXPECTED_ERROR = "unexpected_error"
 
 # portfolio-builder-style period strings → number of calendar days
-_PERIOD_DAYS: Dict[str, int] = {
+_PERIOD_DAYS: dict[str, int] = {
     "1mo": 30,
     "3mo": 90,
     "6mo": 180,
@@ -28,7 +28,7 @@ _PERIOD_DAYS: Dict[str, int] = {
 }
 
 # Mapping: portfolio-builder metric name → Massive.com income_statement attribute
-_INCOME_METRIC_MAP: Dict[str, str] = {
+_INCOME_METRIC_MAP: dict[str, str] = {
     "Total Revenue": "revenues",
     "Cost Of Revenue": "cost_of_revenue",
     "Operating Income": "operating_income_loss",
@@ -45,6 +45,7 @@ def create_massive_client(api_key: str) -> RESTClient:
 # Price history
 # ---------------------------------------------------------------------------
 
+
 def _classify_history_exception(exc: Exception) -> str:
     text = str(exc).lower()
     if "429" in text or "rate limit" in text or "too many requests" in text:
@@ -58,7 +59,7 @@ def fetch_price_history_with_status(
     client: RESTClient,
     ticker: str,
     period: str = "1y",
-) -> Tuple[pd.DataFrame, str]:
+) -> tuple[pd.DataFrame, str]:
     """Fetch daily OHLCV price history plus a normalized fetch status."""
     empty_df = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
 
@@ -67,16 +68,18 @@ def fetch_price_history_with_status(
     from_date = to_date - timedelta(days=days)
 
     try:
-        aggs: List[Any] = list(client.list_aggs(
-            ticker=ticker,
-            multiplier=1,
-            timespan="day",
-            from_=from_date.isoformat(),
-            to=to_date.isoformat(),
-            adjusted=True,
-            sort="asc",
-            limit=50000,
-        ))
+        aggs: list[Any] = list(
+            client.list_aggs(
+                ticker=ticker,
+                multiplier=1,
+                timespan="day",
+                from_=from_date.isoformat(),
+                to=to_date.isoformat(),
+                adjusted=True,
+                sort="asc",
+                limit=50000,
+            )
+        )
     except Exception as exc:
         status = _classify_history_exception(exc)
         logger.exception("Massive.com list_aggs failed for %s status=%s", ticker, status)
@@ -100,6 +103,7 @@ def fetch_price_history_with_status(
     )
     df.index.name = "Date"
     return df, HISTORY_STATUS_OK
+
 
 def fetch_price_history(
     client: RESTClient,
@@ -137,11 +141,12 @@ def fetch_price_history(
 # High-level convenience wrapper (replaces the old ``fetch_stock_data``)
 # ---------------------------------------------------------------------------
 
+
 def fetch_stock_data(
     client: RESTClient,
     ticker: str,
     history_period: str = "1y",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fetch all stock data for a single ticker.
 
     Returns

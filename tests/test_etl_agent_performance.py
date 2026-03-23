@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from src.agent_models import AgentResult
+from src.etl.agent_performance import materialise_agent_performance
 from src.event_store.base import NullEventStore
 from src.event_store.models import AgentPerformanceRecord, LLMCallRecord, ToolCallRecord
-from src.etl.agent_performance import materialise_agent_performance
 
 
 class CaptureMixedStore(NullEventStore):
@@ -90,6 +90,7 @@ def _result(tickers=None, weights=None) -> AgentResult:
 # ---------------------------------------------------------------------------
 # Core aggregation logic
 # ---------------------------------------------------------------------------
+
 
 def test_materialise_aggregates_llm_calls() -> None:
     store = CaptureMixedStore()
@@ -221,6 +222,7 @@ def test_materialise_status_guard_blocked() -> None:
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
+
 
 def test_materialise_zero_llm_calls() -> None:
     store = CaptureMixedStore()

@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
-import json
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import uuid4
+
+from openai import OpenAI
 
 from src.event_store.base import EventStore, MonitoringStore, NullEventStore
 from src.event_store.models import EventRecord, LLMCallRecord
-from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 MODEL_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+(?::[a-zA-Z0-9_.-]+)?$")
@@ -55,16 +56,19 @@ class LLMService:
         model: str,
         max_tokens: int,
         temperature: float,
-        messages: List[Dict[str, str]],
-        session_id: Optional[str] = None,
-        run_id: Optional[str] = None,
-    ) -> tuple[Any, Optional[int]]:
+        messages: list[dict[str, str]],
+        session_id: str | None = None,
+        run_id: str | None = None,
+    ) -> tuple[Any, int | None]:
         session = session_id or "n/a"
         run = run_id or "n/a"
         model_valid = self.is_model_name_valid(model)
         start_time = time.perf_counter()
         logger.info(
-            "[session=%s run=%s] [%s] OpenRouter request start model=%s valid_model_format=%s max_tokens=%s temperature=%s messages=%s",
+            (
+                "[session=%s run=%s] [%s] OpenRouter request start "
+                "model=%s valid_model_format=%s max_tokens=%s temperature=%s messages=%s"
+            ),
             session,
             run,
             request_name,
@@ -102,7 +106,7 @@ class LLMService:
                 model=model,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                messages=messages,
+                messages=cast(Any, messages),
             )
             status_code = getattr(raw_response, "status_code", None)
             parsed_response = raw_response.parse()
@@ -137,7 +141,7 @@ class LLMService:
                         id=str(uuid4()),
                         session_id=session,
                         run_id=run,
-                        timestamp=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                        timestamp=datetime.now(UTC).isoformat(timespec="milliseconds"),
                         model=model,
                         prompt=messages,
                         output=output,
@@ -156,7 +160,7 @@ class LLMService:
                 model=model,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                messages=messages,
+                messages=cast(Any, messages),
             )
             output = self.extract_message_text(response)
             latency_ms = (time.perf_counter() - start_time) * 1000.0
@@ -188,7 +192,7 @@ class LLMService:
                         id=str(uuid4()),
                         session_id=session,
                         run_id=run,
-                        timestamp=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                        timestamp=datetime.now(UTC).isoformat(timespec="milliseconds"),
                         model=model,
                         prompt=messages,
                         output=output,
@@ -218,12 +222,12 @@ class LLMService:
         model: str,
         max_tokens: int,
         temperature: float,
-        messages: List[Dict[str, Any]],
-        tools: List[Dict[str, Any]],
-        reasoning: Dict[str, Any] | None = None,
-        response_format: Dict[str, Any] | None = None,
-        session_id: Optional[str] = None,
-        run_id: Optional[str] = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        reasoning: dict[str, Any] | None = None,
+        response_format: dict[str, Any] | None = None,
+        session_id: str | None = None,
+        run_id: str | None = None,
     ) -> ToolResponse:
         session = session_id or "n/a"
         run = run_id or "n/a"
@@ -253,7 +257,7 @@ class LLMService:
 
         try:
             raw_client = self.client.chat.completions.with_raw_response
-            request_kwargs: Dict[str, Any] = {
+            request_kwargs: dict[str, Any] = {
                 "model": model,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
@@ -311,7 +315,7 @@ class LLMService:
                     id=str(uuid4()),
                     session_id=session,
                     run_id=run,
-                    timestamp=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                    timestamp=datetime.now(UTC).isoformat(timespec="milliseconds"),
                     model=model,
                     prompt=messages,
                     output=text,
@@ -341,7 +345,7 @@ class LLMService:
 def create_openrouter_client(
     api_key: str,
     base_url: str,
-    headers: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
 ) -> OpenAI:
     """Create an OpenRouter client using the OpenAI-compatible API."""
     return OpenAI(api_key=api_key, base_url=base_url, default_headers=headers or {})
@@ -361,19 +365,19 @@ def extract_message_text(response: Any) -> str:
     return content or ""
 
 
-def extract_usage(response: Any) -> Dict[str, Any] | None:
+def extract_usage(response: Any) -> dict[str, Any] | None:
     """Extract token usage payload if available."""
     usage = getattr(response, "usage", None)
     if usage is not None:
         if hasattr(usage, "model_dump"):
-            return usage.model_dump()
+            return cast(dict[str, Any], usage.model_dump())
         if isinstance(usage, dict):
             return usage
 
     if isinstance(response, dict):
         raw_usage = response.get("usage")
         if isinstance(raw_usage, dict):
-            return raw_usage
+            return cast(dict[str, Any], raw_usage)
     return None
 
 

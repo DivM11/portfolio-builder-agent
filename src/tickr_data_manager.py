@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -14,50 +15,50 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TickrDataFetchResult:
-    data_by_ticker: Dict[str, Dict[str, Any]]
-    tickers_with_history: List[str]
-    failed_history_by_status: Dict[str, List[str]]
-    fetched_tickers: List[str]
+    data_by_ticker: dict[str, dict[str, Any]]
+    tickers_with_history: list[str]
+    failed_history_by_status: dict[str, list[str]]
+    fetched_tickers: list[str]
 
 
 @dataclass
 class TickrDataManager:
     """Keeps ticker data across iterations and fetches only missing symbols."""
 
-    cache: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    cache: dict[str, dict[str, Any]] = field(default_factory=dict)
     cache_version: int = 0
 
-    def update_ticker(self, ticker: str, payload: Dict[str, Any]) -> None:
+    def update_ticker(self, ticker: str, payload: dict[str, Any]) -> None:
         self.cache[ticker] = payload
 
     def has_ticker(self, ticker: str) -> bool:
         return ticker in self.cache
 
-    def get_data_by_ticker(self, tickers: List[str]) -> Dict[str, Dict[str, Any]]:
+    def get_data_by_ticker(self, tickers: list[str]) -> dict[str, dict[str, Any]]:
         return {ticker: self.cache[ticker] for ticker in tickers if ticker in self.cache}
 
     def fetch_for_tickers(
         self,
-        tickers: List[str],
-        fetcher: Callable[..., Dict[str, Any]],
+        tickers: list[str],
+        fetcher: Callable[..., dict[str, Any]],
         *,
         history_period: str,
         massive_client: Any,
-        progress_callback: Optional[ProgressCallback] = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> TickrDataFetchResult:
-        failed_history_by_status: Dict[str, List[str]] = {
+        failed_history_by_status: dict[str, list[str]] = {
             "rate_limited": [],
             "not_found": [],
             "empty_data": [],
             "unexpected_error": [],
         }
-        tickers_with_history: List[str] = []
-        fetched_tickers: List[str] = []
+        tickers_with_history: list[str] = []
+        fetched_tickers: list[str] = []
 
         for idx, ticker in enumerate(tickers):
             if progress_callback is not None:
                 progress_callback(idx, len(tickers), ticker)
-            ticker_data: Dict[str, Any]
+            ticker_data: dict[str, Any]
             if self.has_ticker(ticker):
                 ticker_data = self.cache[ticker]
             else:

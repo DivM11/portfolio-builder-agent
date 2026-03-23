@@ -59,9 +59,7 @@ class InputGuard:
         self._llm = llm_service
         self._config = config
         self._event_store = event_store or NullEventStore()
-        self._schema_version = int(
-            config.get("event_store", {}).get("schema_version", 1)
-        )
+        self._schema_version = int(config.get("event_store", {}).get("schema_version", 1))
 
     def check(
         self,
@@ -91,15 +89,11 @@ class InputGuard:
             )
         except Exception:
             logger.exception("InputGuard LLM call failed — rejecting input")
-            result = InputGuardResult(
-                safe=False, category="error", reason="LLM call failed"
-            )
+            result = InputGuardResult(safe=False, category="error", reason="LLM call failed")
             self._record(result, session_id=session_id, run_id=run_id)
             return result
 
-        return self._parse_response(
-            response, session_id=session_id, run_id=run_id
-        )
+        return self._parse_response(response, session_id=session_id, run_id=run_id)
 
     def _parse_response(
         self,
@@ -114,9 +108,7 @@ class InputGuard:
             payload = json.loads(text)
         except (json.JSONDecodeError, TypeError):
             logger.warning("InputGuard: could not parse LLM output as JSON")
-            result = InputGuardResult(
-                safe=False, category="error", reason="Malformed LLM output"
-            )
+            result = InputGuardResult(safe=False, category="error", reason="Malformed LLM output")
             self._record(result, session_id=session_id, run_id=run_id)
             return result
 

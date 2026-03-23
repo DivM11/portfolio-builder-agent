@@ -4,28 +4,29 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from src.agent_models import AgentContext, AgentResult, Context
 from src.data_client import create_massive_client, fetch_stock_data
+from src.etl.agent_performance import materialise_agent_performance
 from src.event_store.base import EventStore, MonitoringStore, NullEventStore
 from src.event_store.models import EventRecord, ToolCallRecord
-from src.etl.agent_performance import materialise_agent_performance
 from src.input_guard import InputGuard
 from src.llm_service import LLMService
 from src.tickr_data_manager import ProgressCallback, TickrDataManager
 from src.tickr_summary_manager import TickrSummaryManager
 from src.tools.allocate_weights import allocate_weights_tool
-from src.tools.analyze_portfolio import analyze_portfolio_tool
-from src.tools.build_summary import build_summary_tool
-from src.tools.fetch_ticker_data import fetch_ticker_data_tool
-from src.tools.generate_tickers import generate_tickers_tool
 from src.tools.allocate_weights import tool_definition as allocate_weights_tool_definition
+from src.tools.analyze_portfolio import analyze_portfolio_tool
 from src.tools.analyze_portfolio import tool_definition as analyze_portfolio_tool_definition
+from src.tools.build_summary import build_summary_tool
 from src.tools.build_summary import tool_definition as build_summary_tool_definition
+from src.tools.fetch_ticker_data import fetch_ticker_data_tool
 from src.tools.fetch_ticker_data import tool_definition as fetch_ticker_data_tool_definition
+from src.tools.generate_tickers import generate_tickers_tool
 from src.tools.generate_tickers import tool_definition as generate_tickers_tool_definition
 
 logger = logging.getLogger(__name__)
@@ -79,17 +80,13 @@ class PortfolioAgent:
         self._context = ctx
 
         if self.input_guard is not None:
-            guard_result = self.input_guard.check(
-                user_input, session_id=session_id, run_id=run_id
-            )
+            guard_result = self.input_guard.check(user_input, session_id=session_id, run_id=run_id)
             if not guard_result.safe:
                 return AgentResult(
                     analysis_text=(
-                        "I can only help with US equity portfolio questions. "
-                        "Please rephrase your request."
+                        "I can only help with US equity portfolio questions. Please rephrase your request."
                         if guard_result.category == "off_topic"
-                        else "Your message could not be processed. "
-                        "Please rephrase your request."
+                        else "Your message could not be processed. Please rephrase your request."
                     ),
                     metadata={
                         "guard_blocked": True,
@@ -128,17 +125,13 @@ class PortfolioAgent:
             raise ValueError("Cannot refine before running the agent at least once")
 
         if self.input_guard is not None:
-            guard_result = self.input_guard.check(
-                feedback, session_id=session_id, run_id=run_id
-            )
+            guard_result = self.input_guard.check(feedback, session_id=session_id, run_id=run_id)
             if not guard_result.safe:
                 return AgentResult(
                     analysis_text=(
-                        "I can only help with US equity portfolio questions. "
-                        "Please rephrase your request."
+                        "I can only help with US equity portfolio questions. Please rephrase your request."
                         if guard_result.category == "off_topic"
-                        else "Your message could not be processed. "
-                        "Please rephrase your request."
+                        else "Your message could not be processed. Please rephrase your request."
                     ),
                     metadata={
                         "guard_blocked": True,
@@ -179,11 +172,7 @@ class PortfolioAgent:
         portfolio_stats: dict[str, Any] = {}
         analysis = ctx.work_state.get("analysis")
         if isinstance(analysis, dict):
-            portfolio_stats = {
-                k: analysis[k]
-                for k in ("return_1y", "current", "min", "max")
-                if k in analysis
-            }
+            portfolio_stats = {k: analysis[k] for k in ("return_1y", "current", "min", "max") if k in analysis}
         try:
             materialise_agent_performance(
                 self.event_store,
@@ -205,7 +194,7 @@ class PortfolioAgent:
     def _system_prompt(self, context: AgentContext) -> str:
         agent_cfg = self.config.get("agent", {})
         prompt_template = agent_cfg.get("system_prompt")
-        if prompt_template:
+        if isinstance(prompt_template, str) and prompt_template:
             return prompt_template.format(
                 max_tickers=self.config.get("stocks", {}).get("max_tickers", 10),
                 excluded_tickers=", ".join(context.excluded_tickers),
@@ -281,9 +270,7 @@ class PortfolioAgent:
                     }
                     for call in response.tool_calls
                 ]
-                ctx.add_assistant_tool_calls_message(
-                    response.text or "", tool_call_dicts
-                )
+                ctx.add_assistant_tool_calls_message(response.text or "", tool_call_dicts)
                 for call in response.tool_calls:
                     ctx.record_tool_invocation(call.name, call.arguments)
                     work_state["tool_invocations"].append({"name": call.name, "arguments": call.arguments})
@@ -315,7 +302,7 @@ class PortfolioAgent:
                                 id=str(uuid4()),
                                 session_id=agent_context.session_id or "n/a",
                                 run_id=agent_context.run_id or "n/a",
-                                timestamp=datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+                                timestamp=datetime.now(UTC).isoformat(timespec="milliseconds"),
                                 tool_name=call.name,
                                 tool_call_id=call.id,
                                 arguments=call.arguments,
@@ -506,7 +493,7 @@ class PortfolioAgent:
         if not weights:
             return {}
 
-        max_ticker = max(weights, key=weights.get)
+        max_ticker = max(weights, key=lambda ticker: float(weights[ticker]))
         max_weight = float(weights[max_ticker])
         if max_weight <= 0.65:
             return {}

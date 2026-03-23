@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any, cast
 
 from src.event_store.base import EventStore, NullEventStore
 from src.event_store.buffer import BufferedEventStore
@@ -28,7 +29,7 @@ def create_event_store(config: Mapping[str, Any] | None) -> EventStore:
             dsn = os.getenv(dsn_env_var)
         if not dsn:
             raise ValueError("event_store.postgres.dsn or dsn_env_var must be configured for postgres backend")
-        store = PostgresEventStore(dsn)
+        store = cast(EventStore, PostgresEventStore(dsn))
     else:
         raise ValueError(f"Unsupported event store backend: {backend}")
 

@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import os
 import logging
+import os
+from contextlib import suppress
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, cast
 
-from omegaconf import OmegaConf
-
+from omegaconf import DictConfig, OmegaConf
 
 logger = logging.getLogger(__name__)
 
 
-def load_config(base_path: Path | None = None) -> Dict[str, Any]:
+def load_config(base_path: Path | None = None) -> dict[str, Any]:
     """Load config.yml and merge in environment-variable secrets.
 
     API keys are read from environment variables (e.g. ``OPENROUTER_API_KEY``,
@@ -27,10 +27,8 @@ def load_config(base_path: Path | None = None) -> Dict[str, Any]:
 
     # --- OpenRouter API key ---
     key_env_var = "OPENROUTER_API_KEY"
-    try:
+    with suppress(AttributeError, KeyError, TypeError):
         key_env_var = config.openrouter.api.key_env_var
-    except (AttributeError, KeyError, TypeError):
-        pass
 
     api_key = os.getenv(key_env_var)
     if api_key:
@@ -38,17 +36,14 @@ def load_config(base_path: Path | None = None) -> Dict[str, Any]:
 
     # --- Massive.com (formerly Polygon.io) API key ---
     massive_key_env_var = "MASSIVE_API_KEY"
-    try:
+    with suppress(AttributeError, KeyError, TypeError):
         massive_key_env_var = config.massive.api.key_env_var
-    except (AttributeError, KeyError, TypeError):
-        pass
 
     massive_api_key = os.getenv(massive_key_env_var)
     if massive_api_key:
         try:
             config.massive.api.api_key = massive_api_key
         except (AttributeError, KeyError, TypeError):
-            from omegaconf import DictConfig
             if not hasattr(config, "massive"):
                 config.massive = DictConfig({"api": {"api_key": massive_api_key, "key_env_var": massive_key_env_var}})
             elif not hasattr(config.massive, "api"):
@@ -57,4 +52,5 @@ def load_config(base_path: Path | None = None) -> Dict[str, Any]:
                 config.massive.api.api_key = massive_api_key
 
     OmegaConf.resolve(config)
-    return OmegaConf.to_container(config, resolve=True)
+    container = OmegaConf.to_container(config, resolve=True)
+    return cast(dict[str, Any], container)

@@ -40,9 +40,45 @@ def test_sqlite_event_store_roundtrip(tmp_path) -> None:
     store.close()
 
 
+def test_create_event_store_unsupported_backend_raises() -> None:
+    try:
+        create_event_store({"enabled": True, "backend": "unknown"})
+    except ValueError as exc:
+        assert "Unsupported event store backend" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_create_event_store_postgres_requires_dsn() -> None:
+    try:
+        create_event_store({"enabled": True, "backend": "postgres", "postgres": {}})
+    except ValueError as exc:
+        assert "dsn or dsn_env_var" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError")
+
+
+def test_create_event_store_postgres_reads_dsn_env(monkeypatch) -> None:
+    monkeypatch.setenv("EVENT_STORE_DSN", "postgresql://u:p@localhost:5432/db")
+
+    try:
+        create_event_store(
+            {
+                "enabled": True,
+                "backend": "postgres",
+                "postgres": {"dsn_env_var": "EVENT_STORE_DSN"},
+            }
+        )
+    except NotImplementedError as exc:
+        assert "PostgresEventStore is not yet implemented" in str(exc)
+    else:
+        raise AssertionError("Expected NotImplementedError")
+
+
 # ---------------------------------------------------------------------------
 # NullEventStore — new MonitoringStore methods
 # ---------------------------------------------------------------------------
+
 
 def test_null_store_monitoring_methods_are_noops() -> None:
     store = NullEventStore()
@@ -109,6 +145,7 @@ def test_null_store_monitoring_methods_are_noops() -> None:
 # ---------------------------------------------------------------------------
 # BufferedEventStore — forwards MonitoringStore calls to backing store
 # ---------------------------------------------------------------------------
+
 
 def test_buffered_store_forwards_record_llm_call(tmp_path) -> None:
     backing = SQLiteEventStore(str(tmp_path / "events.db"))

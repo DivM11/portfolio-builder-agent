@@ -221,7 +221,7 @@ class DummyAgentWithStructuredReasoning(DummyAgentWithSuggestions):
     def run(self, **kwargs):
         result = super().run(**kwargs)
         result.metadata["reasoning_text"] = (
-            'Based on the analysis, here is a comprehensive dividend-oriented portfolio: '
+            "Based on the analysis, here is a comprehensive dividend-oriented portfolio: "
             '{"tickers":["AAPL","MSFT"],"weights":{"AAPL":0.5,"MSFT":0.5},'
             '"allocation":{"AAPL":500,"MSFT":500},"analysis_text":"analysis",'
             '"suggestions":{"add":[],"remove":[],"reweight":{"AAPL":0.5,"MSFT":0.5}}}'

@@ -66,7 +66,9 @@ def test_parse_weights_payload_with_surrounding_text():
 
 
 def test_parse_evaluator_suggestions():
-    result = parse_evaluator_suggestions('{"changes": {"add": ["nvda"], "remove": ["tsla"], "reweight": {"aapl": 0.4}}}')
+    result = parse_evaluator_suggestions(
+        '{"changes": {"add": ["nvda"], "remove": ["tsla"], "reweight": {"aapl": 0.4}}}'
+    )
 
     assert result["add"] == ["NVDA"]
     assert result["remove"] == ["TSLA"]

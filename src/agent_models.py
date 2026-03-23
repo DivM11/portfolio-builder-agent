@@ -63,16 +63,10 @@ class Context:
     def add_message(self, role: str, content: str) -> None:
         self.messages.append({"role": role, "content": content})
 
-    def add_assistant_tool_calls_message(
-        self, text: str, tool_calls: list[dict[str, Any]]
-    ) -> None:
-        self.messages.append(
-            {"role": "assistant", "content": text, "tool_calls": tool_calls}
-        )
+    def add_assistant_tool_calls_message(self, text: str, tool_calls: list[dict[str, Any]]) -> None:
+        self.messages.append({"role": "assistant", "content": text, "tool_calls": tool_calls})
 
-    def add_tool_result_message(
-        self, tool_call_id: str, name: str, payload: dict[str, Any]
-    ) -> None:
+    def add_tool_result_message(self, tool_call_id: str, name: str, payload: dict[str, Any]) -> None:
         self.messages.append(
             {
                 "role": "tool",
@@ -121,13 +115,9 @@ class Context:
         ]
         self.init_work_state()
 
-    def prepare_for_refine(
-        self, feedback: str, previous: AgentResult
-    ) -> None:
+    def prepare_for_refine(self, feedback: str, previous: AgentResult) -> None:
         self.user_input = feedback
-        self.portfolio_size = (
-            float(sum(previous.allocation.values())) if previous.allocation else 0.0
-        )
+        self.portfolio_size = float(sum(previous.allocation.values())) if previous.allocation else 0.0
         self.excluded_tickers = list(previous.metadata.get("excluded_tickers", []))
         self.add_message("user", feedback)
         self.init_work_state(seed_result=previous)

@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-
 from src.event_store.base import NullEventStore
 from src.event_store.models import AgentPerformanceRecord, LLMCallRecord, ToolCallRecord
 from src.event_store.sqlite_store import SQLiteEventStore
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _llm_record(session_id: str = "s1", run_id: str = "r1", **kwargs) -> LLMCallRecord:
     return LLMCallRecord(
@@ -79,13 +77,11 @@ def _perf_record(session_id: str = "s1", run_id: str = "r1", **kwargs) -> AgentP
 # SQLiteEventStore — table creation
 # ---------------------------------------------------------------------------
 
+
 def test_sqlite_creates_llm_calls_table(tmp_path) -> None:
     store = SQLiteEventStore(str(tmp_path / "events.db"))
     tables = {
-        row[0]
-        for row in store._connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        row[0] for row in store._connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
     assert "llm_calls" in tables
     store.close()
@@ -94,10 +90,7 @@ def test_sqlite_creates_llm_calls_table(tmp_path) -> None:
 def test_sqlite_creates_tool_calls_table(tmp_path) -> None:
     store = SQLiteEventStore(str(tmp_path / "events.db"))
     tables = {
-        row[0]
-        for row in store._connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        row[0] for row in store._connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
     assert "tool_calls" in tables
     store.close()
@@ -106,10 +99,7 @@ def test_sqlite_creates_tool_calls_table(tmp_path) -> None:
 def test_sqlite_creates_agent_performance_table(tmp_path) -> None:
     store = SQLiteEventStore(str(tmp_path / "events.db"))
     tables = {
-        row[0]
-        for row in store._connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        row[0] for row in store._connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     }
     assert "agent_performance" in tables
     store.close()
@@ -118,6 +108,7 @@ def test_sqlite_creates_agent_performance_table(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 # SQLiteEventStore — llm_calls round-trip
 # ---------------------------------------------------------------------------
+
 
 def test_record_and_query_llm_call(tmp_path) -> None:
     store = SQLiteEventStore(str(tmp_path / "events.db"))
@@ -189,6 +180,7 @@ def test_llm_call_null_fields_stored_correctly(tmp_path) -> None:
 # SQLiteEventStore — tool_calls round-trip
 # ---------------------------------------------------------------------------
 
+
 def test_record_and_query_tool_call(tmp_path) -> None:
     store = SQLiteEventStore(str(tmp_path / "events.db"))
     rec = _tool_record()
@@ -220,6 +212,7 @@ def test_query_tool_calls_filters_by_session(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 # SQLiteEventStore — agent_performance round-trip
 # ---------------------------------------------------------------------------
+
 
 def test_record_and_query_agent_performance(tmp_path) -> None:
     store = SQLiteEventStore(str(tmp_path / "events.db"))
@@ -271,6 +264,7 @@ def test_query_agent_performance_filters_by_run_id(tmp_path) -> None:
 # NullEventStore — new methods are no-ops
 # ---------------------------------------------------------------------------
 
+
 def test_null_event_store_record_llm_call_is_noop() -> None:
     store = NullEventStore()
     store.record_llm_call(_llm_record())  # should not raise
@@ -292,6 +286,7 @@ def test_null_event_store_record_agent_performance_is_noop() -> None:
 # ---------------------------------------------------------------------------
 # to_dict round-trip
 # ---------------------------------------------------------------------------
+
 
 def test_llm_call_record_to_dict() -> None:
     rec = _llm_record()

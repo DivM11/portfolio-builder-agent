@@ -45,11 +45,7 @@ def analyze_portfolio_tool(
     weights_raw = arguments.get("weights", {})
     if not isinstance(weights_raw, dict):
         weights_raw = {}
-    weights = {
-        str(ticker).upper(): float(value)
-        for ticker, value in weights_raw.items()
-        if str(ticker).strip()
-    }
+    weights = {str(ticker).upper(): float(value) for ticker, value in weights_raw.items() if str(ticker).strip()}
 
     data_by_ticker = tickr_data_manager.get_data_by_ticker(tickers)
     returns_series = build_portfolio_returns_series(

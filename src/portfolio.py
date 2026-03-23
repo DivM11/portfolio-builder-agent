@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_DOWN
-from typing import Dict, Iterable
+from collections.abc import Iterable
+from decimal import ROUND_DOWN, Decimal
 
 
-def normalize_weights(weights: Dict[str, float] | None, tickers: Iterable[str]) -> Dict[str, float]:
+def normalize_weights(weights: dict[str, float] | None, tickers: Iterable[str]) -> dict[str, float]:
     tickers_list = list(tickers)
     if not tickers_list:
         return {}
@@ -28,7 +28,7 @@ def allocate_portfolio(
     tickers: Iterable[str],
     total_amount: float,
     precision: int = 2,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Allocate a total amount across tickers using equal weights."""
     return allocate_portfolio_by_weights(tickers, total_amount, None, precision)
 
@@ -36,9 +36,9 @@ def allocate_portfolio(
 def allocate_portfolio_by_weights(
     tickers: Iterable[str],
     total_amount: float,
-    weights: Dict[str, float] | None,
+    weights: dict[str, float] | None,
     precision: int = 2,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     tickers_list = list(tickers)
     if not tickers_list or total_amount <= 0:
         return {}
@@ -47,13 +47,8 @@ def allocate_portfolio_by_weights(
     quant = Decimal("1") / (Decimal(10) ** precision)
     total = Decimal(str(total_amount))
 
-    raw_allocations = {
-        ticker: Decimal(str(normalized[ticker])) * total for ticker in tickers_list
-    }
-    rounded = {
-        ticker: value.quantize(quant, rounding=ROUND_DOWN)
-        for ticker, value in raw_allocations.items()
-    }
+    raw_allocations = {ticker: Decimal(str(normalized[ticker])) * total for ticker in tickers_list}
+    rounded = {ticker: value.quantize(quant, rounding=ROUND_DOWN) for ticker, value in raw_allocations.items()}
 
     allocated = sum(rounded.values())
     remainder = (total - allocated).quantize(quant)
@@ -62,7 +57,7 @@ def allocate_portfolio_by_weights(
 
     fractional = sorted(
         tickers_list,
-        key=lambda t: (raw_allocations[t] - rounded[t]),
+        key=lambda t: raw_allocations[t] - rounded[t],
         reverse=True,
     )
 
@@ -77,7 +72,7 @@ def allocate_portfolio_by_weights(
     return {ticker: float(value) for ticker, value in rounded.items()}
 
 
-def format_portfolio_allocation(allocation: Dict[str, float]) -> str:
+def format_portfolio_allocation(allocation: dict[str, float]) -> str:
     """Format allocation output for display."""
     if not allocation:
         return "Recommended Portfolio: (none)"

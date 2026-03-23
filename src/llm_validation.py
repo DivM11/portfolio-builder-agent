@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Dict, Iterable, List, Tuple
+from collections.abc import Iterable
 
 TICKER_PATTERN = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")
 
 
-def extract_valid_tickers(text: str, delimiter: str) -> List[str]:
+def extract_valid_tickers(text: str, delimiter: str) -> list[str]:
     split_pattern = r"[\s,;|]+"
     if delimiter and delimiter not in [",", ";", "|"]:
         split_pattern = rf"(?:\s+|{re.escape(delimiter)}|,|;|\|)+"
 
     candidates = [item.strip().upper() for item in re.split(split_pattern, text) if item.strip()]
-    deduped: List[str] = []
+    deduped: list[str] = []
     for ticker in candidates:
         if ticker not in deduped and TICKER_PATTERN.match(ticker):
             deduped.append(ticker)
@@ -23,10 +23,7 @@ def extract_valid_tickers(text: str, delimiter: str) -> List[str]:
 
 
 def has_valid_tickers(tickers: Iterable[str]) -> bool:
-    for ticker in tickers:
-        if TICKER_PATTERN.match(str(ticker).upper()):
-            return True
-    return False
+    return any(TICKER_PATTERN.match(str(ticker).upper()) for ticker in tickers)
 
 
 _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
@@ -48,19 +45,19 @@ def _extract_json_string(text: str) -> str:
         start = cleaned.find(open_ch)
         end = cleaned.rfind(close_ch)
         if start != -1 and end > start:
-            return cleaned[start:end + 1]
+            return cleaned[start : end + 1]
 
     return cleaned
 
 
-def parse_weights_payload(text: str) -> Dict[str, float]:
+def parse_weights_payload(text: str) -> dict[str, float]:
     cleaned = _extract_json_string(text)
     try:
         payload = json.loads(cleaned)
     except json.JSONDecodeError:
         return {}
 
-    weights: Dict[str, float] = {}
+    weights: dict[str, float] = {}
     if isinstance(payload, dict):
         source = payload.get("weights", payload)
         if isinstance(source, dict):
@@ -80,12 +77,12 @@ def parse_weights_payload(text: str) -> Dict[str, float]:
     return weights
 
 
-def validate_weight_sum(weights: Dict[str, float], tolerance: float = 0.02) -> Tuple[bool, float]:
+def validate_weight_sum(weights: dict[str, float], tolerance: float = 0.02) -> tuple[bool, float]:
     total = sum(max(0.0, float(value)) for value in weights.values())
     return abs(total - 1.0) <= tolerance, total
 
 
-def parse_evaluator_suggestions(text: str) -> Dict[str, object]:
+def parse_evaluator_suggestions(text: str) -> dict[str, object]:
     cleaned = _extract_json_string(text)
     try:
         payload = json.loads(cleaned)
@@ -105,7 +102,7 @@ def parse_evaluator_suggestions(text: str) -> Dict[str, object]:
 
     add = [str(item).upper() for item in add_raw] if isinstance(add_raw, list) else []
     remove = [str(item).upper() for item in remove_raw] if isinstance(remove_raw, list) else []
-    reweight: Dict[str, float] = {}
+    reweight: dict[str, float] = {}
     if isinstance(reweight_raw, dict):
         for ticker, value in reweight_raw.items():
             try:

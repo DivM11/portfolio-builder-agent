@@ -37,6 +37,7 @@ _API_URL = os.environ.get("MONITOR_API_URL", "http://localhost:8000")
 # Data helpers (direct SQLite reads — no inter-service HTTP dependency)
 # ---------------------------------------------------------------------------
 
+
 def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return {row[1] for row in rows}

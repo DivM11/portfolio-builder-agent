@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Dict, Iterable
+from collections.abc import Iterable
 
 import pandas as pd
 
@@ -21,7 +21,7 @@ def _compact_number(value: float) -> str:
     return f"{value:.2f}"
 
 
-def summarize_history_stats(history: pd.DataFrame) -> Dict[str, float]:
+def summarize_history_stats(history: pd.DataFrame) -> dict[str, float]:
     if history is None or history.empty or "Close" not in history.columns:
         return {}
 
@@ -39,9 +39,9 @@ def summarize_history_stats(history: pd.DataFrame) -> Dict[str, float]:
 
 def build_ticker_summary(
     ticker: str,
-    data: Dict[str, pd.DataFrame],
+    data: dict[str, pd.DataFrame],
 ) -> str:
-    payload: Dict[str, object] = {"t": ticker}
+    payload: dict[str, object] = {"t": ticker}
 
     history_stats = summarize_history_stats(data.get("history", pd.DataFrame()))
     if history_stats:
@@ -57,7 +57,7 @@ def build_ticker_summary(
 
 def build_portfolio_summary(
     tickers: Iterable[str],
-    data_by_ticker: Dict[str, Dict[str, pd.DataFrame]],
+    data_by_ticker: dict[str, dict[str, pd.DataFrame]],
 ) -> str:
     summaries = []
     for ticker in tickers:
@@ -72,8 +72,8 @@ def build_portfolio_summary(
 
 
 def build_portfolio_returns_series(
-    history_by_ticker: Dict[str, pd.DataFrame],
-    weights: Dict[str, float] | None,
+    history_by_ticker: dict[str, pd.DataFrame],
+    weights: dict[str, float] | None,
 ) -> pd.Series:
     closes = {}
     for ticker, data in history_by_ticker.items():
@@ -96,7 +96,7 @@ def build_portfolio_returns_series(
     return series
 
 
-def summarize_portfolio_stats(portfolio_series: pd.Series) -> Dict[str, float]:
+def summarize_portfolio_stats(portfolio_series: pd.Series) -> dict[str, float]:
     if portfolio_series is None or portfolio_series.empty:
         return {}
 

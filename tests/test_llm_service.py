@@ -145,6 +145,7 @@ def test_complete_with_tools_passes_response_format_when_configured():
 # MonitoringStore integration — record_llm_call is emitted
 # ---------------------------------------------------------------------------
 
+
 class CaptureMonitoringStore(NullEventStore):
     """Captures both legacy events and new monitoring records."""
 
@@ -254,4 +255,3 @@ def test_complete_with_tools_emits_llm_call_to_monitoring_store():
     assert call.run_id == "run2"
     assert call.stage == "agent_stage"
     assert call.output_code == 200
-
