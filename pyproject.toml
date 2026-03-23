@@ -22,13 +22,42 @@ uvicorn = {version = "*", extras = ["standard"]}
 requests = "*"
 
 [tool.poetry.group.dev.dependencies]
-black = "*"
-flake8 = "*"
+ruff = "*"
+mypy = "*"
 pytest = "*"
+pytest-cov = "*"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "T20"]
+# E/F/W = pycodestyle + pyflakes, I = isort, N = pep8-naming,
+# UP = pyupgrade, B = bugbear, SIM = simplify, T20 = print statements
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_empty = true
 
 # Removed [tool.poetry.packages] as it is not needed when using --no-root
 
