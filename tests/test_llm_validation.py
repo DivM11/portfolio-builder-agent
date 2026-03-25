@@ -101,9 +101,7 @@ def test_extract_valid_tickers_custom_delimiter() -> None:
 
 
 def test_parse_weights_payload_list_shape() -> None:
-    result = parse_weights_payload(
-        '```json\n[{"ticker":"aapl","weight":0.6},{"ticker":"msft","weight":"0.4"}]\n```'
-    )
+    result = parse_weights_payload('```json\n[{"ticker":"aapl","weight":0.6},{"ticker":"msft","weight":"0.4"}]\n```')
 
     assert result == {"AAPL": 0.6, "MSFT": 0.4}
 
@@ -179,11 +177,12 @@ def test_extract_valid_tickers_very_long_input() -> None:
 
 def test_parse_weights_payload_unicode_ticker_ignored() -> None:
     """Unicode or non-ASCII tickers should not crash the parser."""
-    result = parse_weights_payload('{"\u30C4": 0.5, "AAPL": 0.5}')
+    result = parse_weights_payload('{"\u30c4": 0.5, "AAPL": 0.5}')
 
     # ツ is not a valid uppercase ASCII ticker — kept as-is by parser
     # but must not crash
     assert "AAPL" in result or len(result) >= 0  # just must not raise
+
 
 # ---------------------------------------------------------------------------
 # generate_tickers_tool reasoning sanitization
