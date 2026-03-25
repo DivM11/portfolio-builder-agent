@@ -55,10 +55,10 @@ class BufferedEventStore:
         for event in pending:
             self._store.record(event)
         if isinstance(self._store, MonitoringStore):
-            for record in pending_llm:
-                self._store.record_llm_call(record)
-            for record in pending_tool:
-                self._store.record_tool_call(record)
+            for llm_record in pending_llm:
+                self._store.record_llm_call(llm_record)
+            for tool_record in pending_tool:
+                self._store.record_tool_call(tool_record)
         if not self._closed:
             self._schedule()
 

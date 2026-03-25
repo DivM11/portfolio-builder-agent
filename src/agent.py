@@ -174,7 +174,8 @@ class PortfolioAgent:
         if isinstance(analysis, dict):
             # analyze_portfolio_tool returns {"stats": {...}, "returns_data_points": N}
             # so look inside "stats" first, then fall back to the top level
-            stats_source = analysis.get("stats") if isinstance(analysis.get("stats"), dict) else analysis
+            _stats = analysis.get("stats")
+            stats_source: dict[str, Any] = _stats if isinstance(_stats, dict) else analysis
             portfolio_stats = {k: stats_source[k] for k in ("return_1y", "current", "min", "max") if k in stats_source}
         try:
             materialise_agent_performance(

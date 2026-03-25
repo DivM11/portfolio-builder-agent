@@ -47,7 +47,7 @@ def _get_session_id() -> str:
     if not session_id:
         session_id = _new_correlation_id()
         st.session_state["session_id"] = session_id
-    return session_id
+    return str(session_id)
 
 
 def _df_to_csv_bytes(df: pd.DataFrame) -> bytes:
