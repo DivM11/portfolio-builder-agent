@@ -9,7 +9,6 @@ from src.agent_models import AgentResult, PortfolioState
 from src.dashboard import _restore_portfolio, _save_current_portfolio, run_dashboard
 from src.plots import plot_portfolio_comparison
 
-
 # ---------------------------------------------------------------------------
 # PortfolioState unit tests
 # ---------------------------------------------------------------------------
