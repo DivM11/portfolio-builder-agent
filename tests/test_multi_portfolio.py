@@ -128,7 +128,9 @@ def test_restore_portfolio_writes_flat_state(monkeypatch) -> None:
     ss = fake_st.session_state
     assert ss["tickers"] == ["GOOG"]
     assert ss["weights"] == {"GOOG": 1.0}
-    assert ss["portfolio_size"] == 3000.0
+    # portfolio_size is staged via a non-widget key so it can be applied safely
+    # on the next Streamlit rerun before the number_input widget is instantiated.
+    assert ss["_restore_portfolio_size"] == 3000.0
     assert ss["analysis_text"] == "Saved analysis"
 
 

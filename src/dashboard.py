@@ -136,7 +136,11 @@ def _restore_portfolio(state: PortfolioState, chat_intro: str = "") -> None:
         ss["latest_result"] = AgentResult()
     if ss["tickers"] is None:
         ss["tickers"] = []
-    ss["portfolio_size"] = state.portfolio_size
+    # portfolio_size is bound to a widget key — it cannot be set directly after that
+    # widget has been rendered in the current run.  Stage the value under a private
+    # non-widget key; _init_state picks it up on the next rerun before any widget
+    # is instantiated.
+    ss["_restore_portfolio_size"] = state.portfolio_size
 
 
 def _build_allocation_table(
@@ -211,6 +215,11 @@ def _render_current_portfolio_sections(container: Any, ui: dict[str, Any]) -> No
 
 def _init_state(default_user_input: str, default_portfolio_size: float, chat_intro: str) -> None:
     state = st.session_state
+    # Apply any staged portfolio_size restore BEFORE the number_input widget with
+    # key="portfolio_size" is instantiated (Streamlit forbids setting widget keys
+    # after the widget has been rendered in the same run).
+    if "_restore_portfolio_size" in state:
+        state["portfolio_size"] = state.pop("_restore_portfolio_size")
     state.setdefault("messages", [{"role": "assistant", "content": chat_intro}])
     state.setdefault("user_input", default_user_input)
     state.setdefault("tickers", [])
