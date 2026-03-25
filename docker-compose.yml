@@ -42,6 +42,17 @@ services:
     profiles:
       - test
 
+  lint:
+    build: .
+    # Override with any check command, e.g.:
+    #   docker compose run --build --rm lint ruff check .
+    #   docker compose run --build --rm lint ruff format --check .
+    #   docker compose run --build --rm lint mypy src/
+    #   docker compose run --build --rm lint pytest --cov=src --cov-report=term-missing --cov-fail-under=90 -v --tb=short
+    command: ["sh", "-c", "ruff check . && ruff format --check . && mypy src/"]
+    profiles:
+      - lint
+
   event-db:
     image: postgres:16-alpine
     environment:
