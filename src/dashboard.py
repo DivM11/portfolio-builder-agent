@@ -369,27 +369,25 @@ def run_dashboard(config: dict[str, Any]) -> None:
         st.session_state["current_portfolio_id"] = selected_pid
         st.rerun()
 
-    if len(portfolios) < max_portfolios:
-        if st.sidebar.button("+ New Portfolio", key="new_portfolio_btn"):
-            _save_current_portfolio(portfolios[current_pid])
-            new_pid = _new_correlation_id()
-            new_name = f"Portfolio {len(portfolios) + 1}"
-            new_ps = PortfolioState(
-                name=new_name,
-                portfolio_size=float(st.session_state.get("portfolio_size", 1000.0)),
-            )
-            portfolios[new_pid] = new_ps
-            _restore_portfolio(new_ps, chat_intro=ui["chat_intro"])
-            st.session_state["current_portfolio_id"] = new_pid
-            st.rerun()
+    if len(portfolios) < max_portfolios and st.sidebar.button("+ New Portfolio", key="new_portfolio_btn"):
+        _save_current_portfolio(portfolios[current_pid])
+        new_pid = _new_correlation_id()
+        new_name = f"Portfolio {len(portfolios) + 1}"
+        new_ps = PortfolioState(
+            name=new_name,
+            portfolio_size=float(st.session_state.get("portfolio_size", 1000.0)),
+        )
+        portfolios[new_pid] = new_ps
+        _restore_portfolio(new_ps, chat_intro=ui["chat_intro"])
+        st.session_state["current_portfolio_id"] = new_pid
+        st.rerun()
 
-    if len(portfolios) > 1:
-        if st.sidebar.button("Delete Portfolio", key="delete_portfolio_btn"):
-            del portfolios[current_pid]
-            remaining_pid = list(portfolios.keys())[0]
-            _restore_portfolio(portfolios[remaining_pid], chat_intro=ui["chat_intro"])
-            st.session_state["current_portfolio_id"] = remaining_pid
-            st.rerun()
+    if len(portfolios) > 1 and st.sidebar.button("Delete Portfolio", key="delete_portfolio_btn"):
+        del portfolios[current_pid]
+        remaining_pid = list(portfolios.keys())[0]
+        _restore_portfolio(portfolios[remaining_pid], chat_intro=ui["chat_intro"])
+        st.session_state["current_portfolio_id"] = remaining_pid
+        st.rerun()
 
     tabs = st.tabs([ui["chat_tab_label"], ui["history_tab_label"], ui["portfolio_tab_label"]])
     chat_tab, history_tab, portfolio_tab = tabs

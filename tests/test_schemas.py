@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import math
-
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from src.schemas import (
     ALLOCATION_COLUMNS,
@@ -43,12 +42,12 @@ def test_ohlcv_row_schema_valid() -> None:
 
 
 def test_ohlcv_row_schema_rejects_nan() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         OHLCVRowSchema(Open=float("nan"), High=110.0, Low=95.0, Close=105.0, Volume=1e6)
 
 
 def test_ohlcv_row_schema_rejects_inf() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         OHLCVRowSchema(Open=100.0, High=float("inf"), Low=95.0, Close=105.0, Volume=1e6)
 
 
@@ -63,12 +62,12 @@ def test_portfolio_stats_schema_valid() -> None:
 
 
 def test_portfolio_stats_schema_rejects_nan() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         PortfolioStatsSchema(min=float("nan"), max=1.2, median=1.05, current=1.1, return_1y=0.1)
 
 
 def test_portfolio_stats_schema_rejects_missing_field() -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         PortfolioStatsSchema(min=0.9, max=1.2, median=1.05, current=1.1)  # return_1y missing
 
 
