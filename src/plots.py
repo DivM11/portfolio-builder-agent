@@ -90,6 +90,40 @@ def plot_portfolio_returns(portfolio_series: pd.Series, title: str) -> Figure | 
     return fig
 
 
+def plot_portfolio_comparison(
+    series_by_portfolio: dict[str, pd.Series],
+    title: str = "Portfolio Comparison",
+) -> Figure | None:
+    """Overlay normalized returns for multiple portfolios on a single chart."""
+    if not series_by_portfolio:
+        return None
+
+    fig = go.Figure()
+    for name, series in series_by_portfolio.items():
+        if series is None or series.empty:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=series.index,
+                y=series.values,
+                mode="lines",
+                name=name,
+            )
+        )
+
+    if not fig.data:
+        return None
+
+    fig.update_layout(
+        title=title,
+        xaxis_title="Date",
+        yaxis_title="Growth of $1",
+        legend_title="Portfolio",
+    )
+    _apply_gridlines(fig)
+    return fig
+
+
 def plot_portfolio_allocation(
     allocation: dict[str, float],
     title: str = "Recommended Portfolio",

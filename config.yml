@@ -30,6 +30,7 @@ dashboard:
   default_user_input: "I want a sustainable and growth-focused portfolio."
   default_portfolio_size: 1000.0
   ticker_delimiter: ","
+  max_portfolios: 5
 
 ui:
   sidebar_header: "Portfolio Preferences"

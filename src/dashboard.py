@@ -12,12 +12,12 @@ import pandas as pd
 import streamlit as st
 
 from src.agent import PortfolioAgent
-from src.agent_models import AgentResult
+from src.agent_models import AgentResult, PortfolioState
 from src.data_client import create_massive_client, fetch_stock_data
 from src.event_store import create_event_store
 from src.llm_service import LLMService, create_openrouter_client
 from src.logging_config import set_log_context
-from src.plots import plot_history, plot_portfolio_allocation, plot_portfolio_returns
+from src.plots import plot_history, plot_portfolio_allocation, plot_portfolio_comparison, plot_portfolio_returns
 from src.portfolio import allocate_portfolio_by_weights, normalize_weights
 from src.portfolio_display_summary import PortfolioDisplaySummary
 from src.summaries import (
@@ -86,6 +86,57 @@ def _clean_reasoning_text(reasoning_text: str) -> str:
     # Remove any leftover structured-key mentions from text output.
     cleaned = re.sub(r'"?(tickers|weights|allocation)"?\s*:\s*[^\n]+', "", cleaned, flags=re.IGNORECASE)
     return cleaned.strip()
+
+
+# Keys in st.session_state that belong to a single portfolio (mirrored in PortfolioState).
+_PORTFOLIO_SS_KEYS: tuple[str, ...] = (
+    "messages",
+    "tickers",
+    "data_by_ticker",
+    "weights",
+    "portfolio_allocation",
+    "portfolio_stats",
+    "portfolio_series",
+    "analysis_text",
+    "reasoning_display_text",
+    "suggestions_text",
+    "allocation_table_df",
+    "pending_suggestions",
+    "recommended_tickers",
+    "excluded_tickers",
+    "portfolio_agent",
+    "is_processing",
+    "pending_prompt",
+    "awaiting_user_decision",
+    "latest_result",
+)
+
+
+def _save_current_portfolio(state: PortfolioState) -> None:
+    """Snapshot flat session_state fields into *state* (in-place)."""
+    ss = st.session_state
+    for key in _PORTFOLIO_SS_KEYS:
+        setattr(state, key, ss.get(key))
+    state.portfolio_size = float(ss.get("portfolio_size", 1000.0))
+
+
+def _restore_portfolio(state: PortfolioState, chat_intro: str = "") -> None:
+    """Write *state* back into flat session_state."""
+    ss = st.session_state
+    for key in _PORTFOLIO_SS_KEYS:
+        ss[key] = getattr(state, key, None)
+    # Replace None with typed defaults for fields that must never be None.
+    if not ss["messages"]:
+        ss["messages"] = [{"role": "assistant", "content": chat_intro}] if chat_intro else []
+    if ss["portfolio_series"] is None:
+        ss["portfolio_series"] = pd.Series(dtype=float)
+    if ss["allocation_table_df"] is None:
+        ss["allocation_table_df"] = pd.DataFrame()
+    if ss["latest_result"] is None:
+        ss["latest_result"] = AgentResult()
+    if ss["tickers"] is None:
+        ss["tickers"] = []
+    ss["portfolio_size"] = state.portfolio_size
 
 
 def _build_allocation_table(
@@ -184,6 +235,10 @@ def _init_state(default_user_input: str, default_portfolio_size: float, chat_int
     state.setdefault("is_processing", False)
     state.setdefault("pending_prompt", None)
     state.setdefault("awaiting_user_decision", False)
+    # Multi-portfolio management
+    _first_pid = "p1"
+    state.setdefault("current_portfolio_id", _first_pid)
+    state.setdefault("portfolios", {_first_pid: PortfolioState(name="Portfolio 1")})
 
 
 def _apply_agent_result(result: AgentResult) -> None:
@@ -228,6 +283,12 @@ def _apply_agent_result(result: AgentResult) -> None:
     )
     st.session_state["portfolio_series"] = portfolio_series
     st.session_state["portfolio_stats"] = summarize_portfolio_stats(portfolio_series)
+    # Sync the updated flat state into the portfolios dict so comparison and
+    # switching work correctly without requiring an explicit save step.
+    _portfolios = st.session_state.get("portfolios", {})
+    _current_pid = st.session_state.get("current_portfolio_id")
+    if _current_pid and _current_pid in _portfolios:
+        _save_current_portfolio(_portfolios[_current_pid])
 
 
 def run_dashboard(config: dict[str, Any]) -> None:
@@ -274,6 +335,52 @@ def run_dashboard(config: dict[str, Any]) -> None:
     if not massive_cfg.get("api_key"):
         st.sidebar.error(ui.get("missing_massive_key", "Missing Massive.com API key."))
         return
+
+    # --- Portfolio management ---
+    portfolios: dict[str, PortfolioState] = st.session_state["portfolios"]
+    current_pid: str = st.session_state["current_portfolio_id"]
+    max_portfolios = int(dashboard.get("max_portfolios", 5))
+
+    portfolio_ids = list(portfolios.keys())
+    portfolio_names = [portfolios[pid].name for pid in portfolio_ids]
+    current_idx = portfolio_ids.index(current_pid) if current_pid in portfolio_ids else 0
+
+    selected_name = st.sidebar.selectbox(
+        "Portfolio",
+        options=portfolio_names,
+        index=current_idx,
+        key="portfolio_selector_name",
+    )
+    selected_idx = portfolio_names.index(selected_name) if selected_name in portfolio_names else 0
+    selected_pid = portfolio_ids[selected_idx]
+
+    if selected_pid != current_pid:
+        _save_current_portfolio(portfolios[current_pid])
+        _restore_portfolio(portfolios[selected_pid], chat_intro=ui["chat_intro"])
+        st.session_state["current_portfolio_id"] = selected_pid
+        st.rerun()
+
+    if len(portfolios) < max_portfolios:
+        if st.sidebar.button("+ New Portfolio", key="new_portfolio_btn"):
+            _save_current_portfolio(portfolios[current_pid])
+            new_pid = _new_correlation_id()
+            new_name = f"Portfolio {len(portfolios) + 1}"
+            new_ps = PortfolioState(
+                name=new_name,
+                portfolio_size=float(st.session_state.get("portfolio_size", 1000.0)),
+            )
+            portfolios[new_pid] = new_ps
+            _restore_portfolio(new_ps, chat_intro=ui["chat_intro"])
+            st.session_state["current_portfolio_id"] = new_pid
+            st.rerun()
+
+    if len(portfolios) > 1:
+        if st.sidebar.button("Delete Portfolio", key="delete_portfolio_btn"):
+            del portfolios[current_pid]
+            remaining_pid = list(portfolios.keys())[0]
+            _restore_portfolio(portfolios[remaining_pid], chat_intro=ui["chat_intro"])
+            st.session_state["current_portfolio_id"] = remaining_pid
+            st.rerun()
 
     tabs = st.tabs([ui["chat_tab_label"], ui["history_tab_label"], ui["portfolio_tab_label"]])
     chat_tab, history_tab, portfolio_tab = tabs
@@ -499,3 +606,20 @@ def run_dashboard(config: dict[str, Any]) -> None:
             if pending_suggestions:
                 st.subheader(ui.get("evaluator_changes_label", "Suggested portfolio changes"))
                 st.write(PortfolioDisplaySummary().format_suggestions(pending_suggestions))
+
+            # Multi-portfolio comparison chart
+            _all_portfolios: dict[str, PortfolioState] = st.session_state.get("portfolios", {})
+            _current_pid_now = st.session_state.get("current_portfolio_id")
+            if len(_all_portfolios) > 1 and _current_pid_now and _current_pid_now in _all_portfolios:
+                # Ensure current portfolio's series is up-to-date before comparing.
+                _save_current_portfolio(_all_portfolios[_current_pid_now])
+                _series_by_name: dict[str, pd.Series] = {
+                    ps.name: ps.portfolio_series
+                    for ps in _all_portfolios.values()
+                    if isinstance(ps.portfolio_series, pd.Series) and not ps.portfolio_series.empty
+                }
+                if len(_series_by_name) > 1:
+                    st.subheader(ui.get("portfolio_comparison_label", "Portfolio Comparison"))
+                    comparison_fig = plot_portfolio_comparison(_series_by_name)
+                    if comparison_fig is not None:
+                        st.plotly_chart(comparison_fig, width="stretch")

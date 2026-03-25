@@ -19,6 +19,39 @@ class AgentContext:
 
 
 @dataclass
+class PortfolioState:
+    """Mutable snapshot of a single named portfolio and its agent session.
+
+    All fields (except *name*) mirror the corresponding flat keys in
+    ``st.session_state`` so they can be saved/restored atomically when the
+    user switches between portfolios.  The pandas-typed fields are annotated
+    as ``Any`` to avoid a hard pandas dependency in this module.
+    """
+
+    name: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    tickers: list[str] = field(default_factory=list)
+    data_by_ticker: dict[str, Any] = field(default_factory=dict)
+    weights: dict[str, float] = field(default_factory=dict)
+    portfolio_allocation: dict[str, float] = field(default_factory=dict)
+    portfolio_stats: dict[str, float] = field(default_factory=dict)
+    portfolio_series: Any = None  # pd.Series
+    analysis_text: str = ""
+    reasoning_display_text: str = ""
+    suggestions_text: str = ""
+    allocation_table_df: Any = None  # pd.DataFrame
+    pending_suggestions: dict[str, Any] = field(default_factory=dict)
+    recommended_tickers: list[str] = field(default_factory=list)
+    excluded_tickers: list[str] = field(default_factory=list)
+    portfolio_agent: Any = None
+    is_processing: bool = False
+    pending_prompt: str | None = None
+    awaiting_user_decision: bool = False
+    latest_result: Any = None  # AgentResult — annotated as Any to avoid forward-ref issues
+    portfolio_size: float = 1000.0
+
+
+@dataclass
 class AgentResult:
     tickers: list[str] = field(default_factory=list)
     data_by_ticker: dict[str, dict[str, Any]] = field(default_factory=dict)

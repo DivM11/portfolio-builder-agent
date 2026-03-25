@@ -33,6 +33,7 @@ class DummySidebar:
         self.session_state = None
         self.error_msg = None
         self.selectbox_calls = []
+        self.button_calls: list[tuple[str, str]] = []
         self.write_args = None
 
     def header(self, _text: str) -> None:
@@ -53,6 +54,10 @@ class DummySidebar:
 
     def error(self, msg: str) -> None:
         self.error_msg = msg
+
+    def button(self, _label: str, key: str | None = None) -> bool:
+        self.button_calls.append((key or _label, _label))
+        return False
 
     def write(self, label: str, value) -> None:
         self.write_args = (label, value)
@@ -333,8 +338,7 @@ def test_run_dashboard_renders_model_selector(monkeypatch):
 
     run_dashboard(_base_config(api_key="ok"))
 
-    assert len(sidebar.selectbox_calls) == 1
-    assert sidebar.selectbox_calls[0][0] == "Agent Model"
+    assert any(call[0] == "Agent Model" for call in sidebar.selectbox_calls)
 
 
 def test_run_dashboard_prompt_uses_single_agent(monkeypatch):
