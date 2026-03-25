@@ -9,6 +9,8 @@ from typing import Any
 import pandas as pd
 from massive import RESTClient
 
+from src.schemas import OHLCV_COLUMNS, OHLCV_INDEX_NAME, validate_ohlcv
+
 logger = logging.getLogger(__name__)
 
 HISTORY_STATUS_OK = "ok"
@@ -61,7 +63,7 @@ def fetch_price_history_with_status(
     period: str = "1y",
 ) -> tuple[pd.DataFrame, str]:
     """Fetch daily OHLCV price history plus a normalized fetch status."""
-    empty_df = pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+    empty_df = pd.DataFrame(columns=OHLCV_COLUMNS)
 
     days = _PERIOD_DAYS.get(period, 365)
     to_date = date.today()
@@ -101,7 +103,10 @@ def fetch_price_history_with_status(
         ],
         index=pd.to_datetime([a.timestamp for a in aggs], unit="ms"),
     )
-    df.index.name = "Date"
+    df.index.name = OHLCV_INDEX_NAME
+    errs = validate_ohlcv(df)
+    if errs:
+        logger.warning("OHLCV validation errors for %s: %s", ticker, errs)
     return df, HISTORY_STATUS_OK
 
 

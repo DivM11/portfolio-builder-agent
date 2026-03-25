@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterable
 
 import pandas as pd
 
 from src.portfolio import normalize_weights
+from src.schemas import validate_portfolio_stats
+
+logger = logging.getLogger(__name__)
 
 
 def _compact_number(value: float) -> str:
@@ -100,10 +104,14 @@ def summarize_portfolio_stats(portfolio_series: pd.Series) -> dict[str, float]:
     if portfolio_series is None or portfolio_series.empty:
         return {}
 
-    return {
+    stats = {
         "min": float(portfolio_series.min()),
         "max": float(portfolio_series.max()),
         "median": float(portfolio_series.median()),
         "current": float(portfolio_series.iloc[-1]),
         "return_1y": float(portfolio_series.iloc[-1] - 1.0),
     }
+    errs = validate_portfolio_stats(stats)
+    if errs:
+        logger.warning("Portfolio stats validation errors: %s", errs)
+    return stats
