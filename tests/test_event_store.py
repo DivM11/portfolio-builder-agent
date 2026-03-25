@@ -168,6 +168,7 @@ def test_buffered_store_forwards_record_llm_call(tmp_path) -> None:
         schema_version=1,
     )
     buffered.record_llm_call(rec)
+    buffered.flush()  # records are buffered; flush before querying backing store
     results = buffered.query_llm_calls(session_id="s1")
     assert len(results) == 1
     assert results[0].id == "buf-llm"
@@ -192,6 +193,7 @@ def test_buffered_store_forwards_record_tool_call(tmp_path) -> None:
         schema_version=1,
     )
     buffered.record_tool_call(rec)
+    buffered.flush()  # records are buffered; flush before querying backing store
     results = buffered.query_tool_calls(session_id="s1")
     assert len(results) == 1
     assert results[0].tool_name == "generate_tickers"
@@ -227,3 +229,25 @@ def test_buffered_store_forwards_record_agent_performance(tmp_path) -> None:
     assert len(results) == 1
     assert results[0].run_id == "r1-unique"
     buffered.close()
+
+
+# ---------------------------------------------------------------------------
+# SQLite WAL mode
+# ---------------------------------------------------------------------------
+
+
+def test_sqlite_event_store_uses_wal_journal_mode(tmp_path) -> None:
+    """SQLiteEventStore must enable WAL mode for write performance."""
+    store = SQLiteEventStore(str(tmp_path / "wal_test.db"))
+    row = store._connection.execute("PRAGMA journal_mode").fetchone()
+    assert row[0].lower() == "wal"
+    store.close()
+
+
+def test_sqlite_event_store_uses_normal_synchronous_mode(tmp_path) -> None:
+    """SQLiteEventStore must set synchronous=NORMAL (1) for performance."""
+    store = SQLiteEventStore(str(tmp_path / "sync_test.db"))
+    row = store._connection.execute("PRAGMA synchronous").fetchone()
+    # 0=OFF, 1=NORMAL, 2=FULL, 3=EXTRA
+    assert row[0] == 1
+    store.close()

@@ -22,6 +22,8 @@ class BufferedEventStore:
         self._flush_interval_seconds = max(0.1, float(flush_interval_seconds))
         self._max_buffer_size = max(1, int(max_buffer_size))
         self._buffer: deque[EventRecord] = deque()
+        self._llm_buffer: deque[LLMCallRecord] = deque()
+        self._tool_buffer: deque[ToolCallRecord] = deque()
         self._lock = threading.Lock()
         self._closed = False
         self._timer: threading.Timer | None = None
@@ -46,8 +48,17 @@ class BufferedEventStore:
         with self._lock:
             pending = list(self._buffer)
             self._buffer.clear()
+            pending_llm = list(self._llm_buffer)
+            self._llm_buffer.clear()
+            pending_tool = list(self._tool_buffer)
+            self._tool_buffer.clear()
         for event in pending:
             self._store.record(event)
+        if isinstance(self._store, MonitoringStore):
+            for record in pending_llm:
+                self._store.record_llm_call(record)
+            for record in pending_tool:
+                self._store.record_tool_call(record)
         if not self._closed:
             self._schedule()
 
@@ -62,17 +73,28 @@ class BufferedEventStore:
         return self._store.query(session_id=session_id, event_type=event_type, since=since, limit=limit)
 
     # ------------------------------------------------------------------
-    # MonitoringStore forwarding (pass-through — no buffering needed for
-    # these low-volume writes; they go to the backing store directly)
+    # MonitoringStore forwarding — LLM and tool calls are buffered for
+    # reduced write latency; agent_performance is low-volume (once per
+    # run) so it remains a direct pass-through.
     # ------------------------------------------------------------------
 
     def record_llm_call(self, record: LLMCallRecord) -> None:
-        if isinstance(self._store, MonitoringStore):
-            self._store.record_llm_call(record)
+        if not isinstance(self._store, MonitoringStore):
+            return
+        with self._lock:
+            self._llm_buffer.append(record)
+            should_flush = len(self._llm_buffer) >= self._max_buffer_size
+        if should_flush:
+            self.flush()
 
     def record_tool_call(self, record: ToolCallRecord) -> None:
-        if isinstance(self._store, MonitoringStore):
-            self._store.record_tool_call(record)
+        if not isinstance(self._store, MonitoringStore):
+            return
+        with self._lock:
+            self._tool_buffer.append(record)
+            should_flush = len(self._tool_buffer) >= self._max_buffer_size
+        if should_flush:
+            self.flush()
 
     def record_agent_performance(self, record: AgentPerformanceRecord) -> None:
         if isinstance(self._store, MonitoringStore):

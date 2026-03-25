@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Iterable
+
+logger = logging.getLogger(__name__)
 
 TICKER_PATTERN = re.compile(r"^[A-Z][A-Z0-9.-]{0,9}$")
 
@@ -63,16 +66,24 @@ def parse_weights_payload(text: str) -> dict[str, float]:
         if isinstance(source, dict):
             for ticker, value in source.items():
                 try:
-                    weights[str(ticker).upper()] = float(value)
+                    parsed = float(value)
                 except (TypeError, ValueError):
                     continue
+                if parsed < 0:
+                    logger.warning("parse_weights_payload: skipping negative weight %r for %s", value, ticker)
+                    continue
+                weights[str(ticker).upper()] = parsed
     elif isinstance(payload, list):
         for item in payload:
             if isinstance(item, dict) and "ticker" in item and "weight" in item:
                 try:
-                    weights[str(item["ticker"]).upper()] = float(item["weight"])
+                    parsed = float(item["weight"])
                 except (TypeError, ValueError):
                     continue
+                if parsed < 0:
+                    logger.warning("parse_weights_payload: skipping negative weight for %s", item["ticker"])
+                    continue
+                weights[str(item["ticker"]).upper()] = parsed
 
     return weights
 

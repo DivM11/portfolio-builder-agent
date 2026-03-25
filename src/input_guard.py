@@ -124,8 +124,15 @@ class InputGuard:
                 )
                 self._record(result, session_id=session_id, run_id=run_id)
                 return result
-            # Unknown but present — treat as safe
-            classification = "safe"
+            # Unknown but present — fail closed
+            logger.warning("InputGuard: unrecognised classification %r — rejecting", classification)
+            result = InputGuardResult(
+                safe=False,
+                category="error",
+                reason=f"Unknown classification: {classification}",
+            )
+            self._record(result, session_id=session_id, run_id=run_id)
+            return result
 
         is_safe = classification == "safe"
         reason = str(payload.get("reason", "")) if isinstance(payload, dict) else ""

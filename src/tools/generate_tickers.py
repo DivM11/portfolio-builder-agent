@@ -40,9 +40,12 @@ def generate_tickers_tool(arguments: dict[str, Any], *, max_tickers: int) -> dic
     valid = extract_valid_tickers(joined, delimiter=",")
     valid = valid[: max(0, int(max_tickers))]
     rejected = [str(t).upper() for t in raw if str(t).upper() not in valid]
+    raw_reasoning = str(arguments.get("reasoning", ""))
+    # Sanitize: truncate and strip control characters to prevent reflected injection
+    sanitized_reasoning = "".join(ch for ch in raw_reasoning if ch >= " " or ch in "\n\t")[:500]
     return {
         "valid_tickers": valid,
         "rejected_tickers": rejected,
         "count": len(valid),
-        "reasoning": str(arguments.get("reasoning", "")),
+        "reasoning": sanitized_reasoning,
     }

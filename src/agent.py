@@ -172,7 +172,10 @@ class PortfolioAgent:
         portfolio_stats: dict[str, Any] = {}
         analysis = ctx.work_state.get("analysis")
         if isinstance(analysis, dict):
-            portfolio_stats = {k: analysis[k] for k in ("return_1y", "current", "min", "max") if k in analysis}
+            # analyze_portfolio_tool returns {"stats": {...}, "returns_data_points": N}
+            # so look inside "stats" first, then fall back to the top level
+            stats_source = analysis.get("stats") if isinstance(analysis.get("stats"), dict) else analysis
+            portfolio_stats = {k: stats_source[k] for k in ("return_1y", "current", "min", "max") if k in stats_source}
         try:
             materialise_agent_performance(
                 self.event_store,

@@ -578,3 +578,73 @@ def test_run_does_not_emit_monitoring_records_to_plain_event_store() -> None:
 
     # Only legacy EventRecord events in the plain store — no ToolCallRecord
     assert all(isinstance(e, EventRecord) for e in store.events)
+
+
+# ---------------------------------------------------------------------------
+# portfolio_return_1y extracted from nested "stats" key
+# ---------------------------------------------------------------------------
+
+
+def test_emit_agent_performance_extracts_stats_from_nested_key() -> None:
+    """_emit_agent_performance must read stats from analysis["stats"] not top-level."""
+    store = CaptureMonitoringStore()
+    agent = PortfolioAgent(
+        CaptureLLMService(),
+        _monitoring_config(),
+        event_store=store,
+        massive_client_factory=lambda _k: object(),
+        stock_data_fetcher=lambda **_kwargs: {},
+    )
+    agent.tickr_data_manager.cache = {
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})},
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})},
+    }
+
+    agent.run(user_input="build", portfolio_size=1000.0, session_id="s1", run_id="r1")
+
+    # Manually inject an analysis result with the correct nested shape
+    # (mirrors what analyze_portfolio_tool returns)
+    agent._context.work_state["analysis"] = {
+        "stats": {"return_1y": 0.15, "current": 1.15, "min": 0.95, "max": 1.2},
+        "returns_data_points": 252,
+    }
+    store.perf_records.clear()
+    agent._context.session_id = "s1"
+    agent._context.run_id = "r2"
+    agent._emit_agent_performance(agent._context)
+
+    assert len(store.perf_records) == 1
+    perf = store.perf_records[0]
+    assert perf.portfolio_return_1y == 0.15
+    assert perf.portfolio_current == 1.15
+    assert perf.portfolio_min == 0.95
+    assert perf.portfolio_max == 1.2
+
+
+def test_emit_agent_performance_tolerates_missing_stats() -> None:
+    """_emit_agent_performance must not crash if analysis has no stats."""
+    store = CaptureMonitoringStore()
+    agent = PortfolioAgent(
+        CaptureLLMService(),
+        _monitoring_config(),
+        event_store=store,
+        massive_client_factory=lambda _k: object(),
+        stock_data_fetcher=lambda **_kwargs: {},
+    )
+    agent.tickr_data_manager.cache = {
+        "AAPL": {"history": pd.DataFrame({"Close": [1.0]})},
+        "MSFT": {"history": pd.DataFrame({"Close": [1.0]})},
+    }
+
+    agent.run(user_input="build", portfolio_size=1000.0, session_id="s1", run_id="r1")
+
+    # analysis dict with no stats / top-level stats
+    agent._context.work_state["analysis"] = {"returns_data_points": 0}
+    store.perf_records.clear()
+    agent._context.run_id = "r2"
+    agent._emit_agent_performance(agent._context)
+
+    assert len(store.perf_records) == 1
+    perf = store.perf_records[0]
+    assert perf.portfolio_return_1y is None
+    assert perf.portfolio_current is None
