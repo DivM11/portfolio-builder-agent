@@ -41,6 +41,9 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "T20"]
 # UP = pyupgrade, B = bugbear, SIM = simplify, T20 = print statements
 ignore = []
 
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
 [tool.ruff.format]
 quote-style = "double"
 
