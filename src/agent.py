@@ -9,9 +9,10 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from agent_monitoring.etl.portfolio_agent_performance import materialise_agent_performance
+
 from src.agent_models import AgentContext, AgentResult, Context
 from src.data_client import create_massive_client, fetch_stock_data
-from src.etl.agent_performance import materialise_agent_performance
 from src.event_store.base import EventStore, MonitoringStore, NullEventStore
 from src.event_store.models import EventRecord, ToolCallRecord
 from src.input_guard import InputGuard

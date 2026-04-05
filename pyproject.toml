@@ -8,6 +8,7 @@ package-mode = false # Using Poetry for dependency management only, not for pack
 
 [tool.poetry.dependencies]
 python = "^3.11"
+agent-monitoring = { path = "../agent-monitoring", develop = true }
 streamlit = "*"
 massive = "*"
 openai = "*"
@@ -17,8 +18,6 @@ numpy = "*"
 matplotlib = "*"
 omegaconf = "*"
 plotly = "*"
-fastapi = "*"
-uvicorn = {version = "*", extras = ["standard"]}
 requests = "*"
 
 [tool.poetry.group.dev.dependencies]

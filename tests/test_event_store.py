@@ -4,6 +4,7 @@ from src.event_store import create_event_store
 from src.event_store.base import NullEventStore
 from src.event_store.buffer import BufferedEventStore
 from src.event_store.models import AgentPerformanceRecord, EventRecord, LLMCallRecord, ToolCallRecord
+from src.event_store.postgres_store import PostgresEventStore
 from src.event_store.sqlite_store import SQLiteEventStore
 
 
@@ -61,18 +62,17 @@ def test_create_event_store_postgres_requires_dsn() -> None:
 def test_create_event_store_postgres_reads_dsn_env(monkeypatch) -> None:
     monkeypatch.setenv("EVENT_STORE_DSN", "postgresql://u:p@localhost:5432/db")
 
-    try:
-        create_event_store(
-            {
-                "enabled": True,
-                "backend": "postgres",
-                "postgres": {"dsn_env_var": "EVENT_STORE_DSN"},
-            }
-        )
-    except NotImplementedError as exc:
-        assert "PostgresEventStore is not yet implemented" in str(exc)
-    else:
-        raise AssertionError("Expected NotImplementedError")
+    store = create_event_store(
+        {
+            "enabled": True,
+            "backend": "postgres",
+            "postgres": {"dsn_env_var": "EVENT_STORE_DSN"},
+            "buffer": {"enabled": False},
+        }
+    )
+
+    assert isinstance(store, PostgresEventStore)
+    store.close()
 
 
 # ---------------------------------------------------------------------------
