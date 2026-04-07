@@ -4,7 +4,7 @@
 
 A Streamlit app that uses a **tool-calling LLM agent** to build personalized US equity portfolios. Users describe investment goals in natural language; the agent fetches market data via [Massive.com](https://massive.com), runs analysis through [OpenRouter](https://openrouter.ai)-hosted models, and returns a weighted portfolio with actionable suggestions.
 
-A built-in **monitoring stack** records every LLM call, tool invocation, and agent run to a structured SQLite database, exposing the data through a REST API and a dedicated Streamlit dashboard.
+The app emits structured telemetry for every LLM call, tool invocation, and completed run. Shared monitoring services now live in the sibling `agent-monitoring` repo, while this repo focuses on the product UI and telemetry production.
 
 ## Features
 
@@ -13,9 +13,8 @@ A built-in **monitoring stack** records every LLM call, tool invocation, and age
 - **Switchable LLM models** — choose the active model from the sidebar; options configured in [config.yml](config.yml).
 - **Backtesting** — Applies filters and quantitative analysis to the generated portfolio.
 - **Tabbed dashboard** — Chat, Historical Prices, and Portfolio views with a post-analysis prompt to review results.
-- **Structured monitoring** — Every LLM round-trip, tool call, and completed run is persisted to dedicated SQLite tables.
-- **Monitoring REST API** — Query live data over HTTP with Swagger UI at `/docs` (port 8000).
-- **Monitoring dashboard** — Separate Streamlit UI with filterable dataframes and summary metrics (port 8502).
+- **Structured telemetry** — Every LLM round-trip, tool call, and completed run is persisted to dedicated event-store records.
+- **Shared monitoring integration** — Switch the backend to Postgres and inspect both apps through the sibling `agent-monitoring` API and dashboard.
 
 ## System Architecture
 
@@ -29,9 +28,7 @@ flowchart TD
         MC["Massive.com Market Data"]
     end
 
-    subgraph Compose["Docker Compose  •  shared event-data volume"]
-        direction TB
-
+    subgraph PortfolioRepo["portfolio-builder-agent"]
         subgraph AppSvc["app  :8501"]
             UI["Streamlit Dashboard"]
             Guard["InputGuard"]
@@ -39,39 +36,27 @@ flowchart TD
             LLM["LLMService"]
         end
 
-        subgraph Store["SQLite  data/events.db"]
-            T1[("events")]
-            T2[("llm_calls")]
-            T3[("tool_calls")]
-            T4[("agent_performance")]
-        end
+        Store["Configured event store\nSQLite data/events.db (default)\nor shared Postgres via EVENT_STORE_DSN"]
+    end
 
-        subgraph MonAPI["monitor-api  :8000"]
-            FA["FastAPI /events  /llm-calls /tool-calls  /agent-performance"]
-        end
-
-        subgraph MonUI["monitor-ui  :8502"]
-            MUI["Streamlit Monitoring Dashboard"]
-        end
+    subgraph MonitoringRepo["agent-monitoring repo"]
+        API["FastAPI monitoring_api  :8000"]
+        MUI["Streamlit monitoring_ui  :8502"]
     end
 
     User -- "portfolio request" --> UI
     UI --> Guard
     Guard -- "passes" --> Agent
-    Agent -- "tool calls" --> LLM
+    Agent -- "tool loop" --> LLM
     LLM -- "HTTP" --> OR
     Agent -- "fetch data" --> MC
 
-    LLM -- "LLMCallRecord" --> T2
-    Agent -- "ToolCallRecord" --> T3
-    Agent -- "AgentPerformanceRecord (ETL)" --> T4
-    LLM -- "EventRecord" --> T1
+    LLM -- "events + llm_calls" --> Store
+    Agent -- "tool_calls + agent_performance" --> Store
 
-    T1 & T2 & T3 & T4 --> FA
-    FA --> MUI
-
-    User -- "view metrics  :8502" --> MUI
-    Dev -- "REST queries  :8000" --> FA
+    Store -- "postgres backend" --> API
+    API --> MUI
+    Dev -- "inspect shared telemetry" --> MUI
 ```
 
 ## Agent Design
@@ -95,50 +80,35 @@ The final output is a structured `AgentResult` containing tickers, weights, allo
 - **Caching** — `TickrDataManager` caches per-ticker payloads; `TickrSummaryManager` caches summaries keyed by ticker set and cache version.
 - **Output normalization** — missing fields are backfilled from tool state; suggestions are coerced into a consistent shape.
 
-## Monitoring
+## Telemetry and Monitoring
 
-### Event Store tables
+### Event store records
 
-The SQLite database (`data/events.db`) contains four tables written automatically during every agent run:
+The app emits four logical record types during every agent run. With `event_store.backend: "sqlite"` they are stored locally in `data/events.db`. With `event_store.backend: "postgres"` they are written to the shared Postgres schema used by the sibling `agent-monitoring` repo.
 
-| Table | Written by | One row per |
+| Record / Table | Written by | One row per |
 |---|---|---|
-| `events` | All components | Every legacy event (LLM request, tool call, guard check, …) |
+| `events` | All components | Legacy event envelope (LLM request, tool call, guard check, …) |
 | `llm_calls` | `LLMService` | LLM HTTP round-trip |
 | `tool_calls` | `PortfolioAgent` | Tool invocation inside the agent loop |
-| `agent_performance` | ETL (`src/etl/agent_performance.py`) | Completed agent run (aggregated) |
+| `agent_performance` | Shared ETL in `agent-monitoring` | Completed agent run aggregated from LLM and tool records |
 
-### Monitoring REST API (`monitor-api`, port 8000)
+### Shared monitoring services
 
-A FastAPI application (`src/monitoring_api.py`) exposes read-only query endpoints for each table:
+This repo no longer owns the monitoring API or admin dashboard. Those services live in the sibling `agent-monitoring` repo:
 
-| Endpoint | Filters |
-|---|---|
-| `GET /health` | — |
-| `GET /events` | `session_id`, `event_type`, `limit` |
-| `GET /llm-calls` | `session_id`, `run_id`, `stage`, `limit` |
-| `GET /tool-calls` | `session_id`, `run_id`, `tool_name`, `limit` |
-| `GET /agent-performance` | `session_id`, `run_id`, `status`, `limit` |
+- `agent_monitoring.monitoring_api` exposes the shared FastAPI read API over Postgres.
+- `agent_monitoring.monitoring_ui` provides the Streamlit admin dashboard for both `portfolio-builder-agent` and `spectrum-news-agent`.
 
-Interactive Swagger UI: `http://localhost:8000/docs`
+To use centralized monitoring locally:
 
 ```bash
-# Examples
-curl "http://localhost:8000/agent-performance?limit=10"
-curl "http://localhost:8000/llm-calls?session_id=abc123"
-curl "http://localhost:8000/tool-calls?tool_name=generate_tickers"
+# 1. Set event_store.backend to postgres in config.yml.
+# 2. Export EVENT_STORE_DSN for the shared database.
+# 3. Start the shared monitoring stack from the sibling repo.
+cd ../agent-monitoring
+docker compose up --build monitoring-api monitoring-ui
 ```
-
-### Monitoring Dashboard (`monitor-ui`, port 8502)
-
-A dedicated Streamlit app (`monitoring.py`) provides:
-- **Four tabs** — one per table, each rendered as an interactive dataframe.
-- **Summary metrics** — avg latency, call counts, token totals, status breakdown.
-- **Tool usage chart** — bar chart of tool invocation frequency.
-- **Sidebar filters** — filter by `session_id`, `run_id`, and row limit; one-click data refresh.
-- **API link** — direct link to the REST API docs from the sidebar.
-
-Open at `http://localhost:8502` after starting the stack.
 
 ## Project Structure
 ```
@@ -149,7 +119,6 @@ portfolio-builder-agent/
 ├── docker-compose.yml       # Docker Compose services
 ├── .secrets.example         # Template for .secrets (gitignored)
 ├── main.py                  # Main Streamlit app entry point
-├── monitoring.py            # Monitoring Streamlit dashboard (port 8502)
 ├── pyproject.toml           # Poetry configuration file
 ├── src/
 │   ├── config.py            # Configuration loading
@@ -157,22 +126,21 @@ portfolio-builder-agent/
 │   ├── data_client.py       # Massive.com (Polygon.io) data fetching
 │   ├── llm_service.py       # OpenRouter LLM client (emits LLMCallRecord)
 │   ├── llm_validation.py    # LLM output validation
-│   ├── monitoring_api.py    # FastAPI monitoring REST API (port 8000)
 │   ├── plots.py             # Plotly chart builders
 │   ├── portfolio.py         # Portfolio allocation
 │   ├── summaries.py         # Data summarization
 │   ├── agent.py             # PortfolioAgent (emits ToolCallRecord)
-│   ├── etl/
-│   │   └── agent_performance.py  # Aggregates llm_calls + tool_calls → agent_performance
 │   └── event_store/
 │       ├── base.py          # EventStore / MonitoringStore protocols
 │       ├── models.py        # EventRecord, LLMCallRecord, ToolCallRecord, AgentPerformanceRecord
-│       ├── sqlite_store.py  # SQLite backend (all four tables)
+│       ├── sqlite_store.py  # Local SQLite backend
 │       ├── buffer.py        # Buffered wrapper
-│       └── postgres_store.py
+│       └── postgres_store.py # Adapter to shared agent-monitoring Postgres store
 ├── tests/                   # Test suite
 └── README.md                # Project overview and instructions
 ```
+
+Shared monitoring API/UI and the portfolio ETL live in the sibling `../agent-monitoring` repo.
 
 ## Getting Started
 
@@ -186,7 +154,8 @@ portfolio-builder-agent/
    git clone <repository-url>
    cd portfolio-builder-agent
    ```
-2. Install dependencies:
+2. Ensure the sibling `agent-monitoring` repo exists at `../agent-monitoring`.
+3. Install dependencies:
    ```bash
    poetry install
    ```
@@ -197,14 +166,7 @@ To start the main Streamlit dashboard, run:
 poetry run streamlit run main.py
 ```
 
-To start the monitoring API and dashboard locally:
-```bash
-# Monitoring REST API
-poetry run uvicorn src.monitoring_api:app --host 0.0.0.0 --port 8000
-
-# Monitoring Streamlit dashboard
-poetry run streamlit run monitoring.py --server.port 8502
-```
+If you want the shared monitoring API and dashboard, run them from the sibling `agent-monitoring` repo after switching this app to the Postgres backend.
 
 ## Configuration and Secrets
 - Update [config.yml](config.yml) for model, prompts, and UI text.
@@ -253,33 +215,39 @@ docker run -p 8501:8501 --env-file .secrets portfolio-builder-agent
 
 ## Using Docker
 
-### Build the Docker Image
-```bash
-docker build -t portfolio-builder-agent .
-```
+### Build and run with Docker Compose (recommended)
 
-### Run with Docker Compose (recommended)
+The Dockerfile expects the sibling `agent-monitoring` repo as an additional build context, so Docker Compose is the simplest way to build and run this repo.
 
 ```bash
-# Start everything — main app, monitoring API, and monitoring dashboard
+# Start the main portfolio app
 docker compose up --build
 ```
 
-| Service | URL | Description |
+| Service / Profile | URL | Description |
 |---|---|---|
 | `app` | http://localhost:8501 | Main portfolio builder UI |
-| `monitor-api` | http://localhost:8000 | Monitoring REST API + Swagger UI (`/docs`) |
-| `monitor-ui` | http://localhost:8502 | Monitoring Streamlit dashboard |
+| `test` | — | One-off pytest service |
+| `lint` | — | One-off Ruff + mypy service |
+| `event-db` (`postgres` profile) | — | Optional local Postgres for shared-backend testing |
 
 ```bash
-# Start only the monitoring services (no API keys needed)
-docker compose up --build monitor-api monitor-ui
-
 # Run tests
 docker compose run --build --rm test
+
+# Run lint + type checks
+docker compose run --build --rm lint
+
+# Optional: start a local Postgres instance for EVENT_STORE_DSN-based testing
+docker compose --profile postgres up -d event-db
 ```
 
-All three services share the same `event-data` Docker volume, so data written by the main app is immediately visible in the monitoring stack.
+When using the default SQLite backend, the app writes telemetry to the local `event-data` volume. Shared monitoring services are started from the sibling `agent-monitoring` repo.
+
+### Standalone image build
+```bash
+docker buildx build --build-context agent_monitoring=../agent-monitoring -t portfolio-builder-agent .
+```
 
 ### Run with Docker CLI
 ```bash
