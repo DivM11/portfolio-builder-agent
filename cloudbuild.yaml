@@ -1,0 +1,109 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+substitutions:
+  _LOCATION: us-central1
+  _REPOSITORY: agents
+  _IMAGE_NAME: portfolio-builder-agent
+  _IMAGE_TAG: latest
+  _AGENT_MONITORING_REPO_URL: https://github.com/DivM11/agent-monitoring.git
+  _AGENT_MONITORING_REF: main
+  _RUN_DEPLOY: "false"
+  _DEPLOY_SERVICE: portfolio-builder-agent
+  _DEPLOY_REGION: us-central1
+  _DEPLOY_PORT: "8501"
+  _ALLOW_UNAUTHENTICATED: "true"
+  _DEPLOY_SECRETS: OPENROUTER_API_KEY=openrouter-api-key:latest;MASSIVE_API_KEY=MASSIVE_API_KEY:latest;EVENT_STORE_DSN=EVENT_STORE_DSN:latest
+  _DEPLOY_ENV_VARS: ""
+
+steps:
+  - id: fetch-agent-monitoring
+    name: gcr.io/cloud-builders/git
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+          set -euo pipefail
+          git clone "${_AGENT_MONITORING_REPO_URL}" /workspace/agent-monitoring
+          cd /workspace/agent-monitoring
+          git checkout "${_AGENT_MONITORING_REF}"
+
+  - id: build-image
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+          set -euo pipefail
+          docker buildx create --name app-builder --use
+          docker buildx build --load \
+            --build-context agent_monitoring=/workspace/agent-monitoring \
+            --tag "${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}" \
+            .
+
+  - id: lint
+    name: gcr.io/cloud-builders/docker
+    args:
+      - run
+      - --rm
+      - ${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}
+      - sh
+      - -c
+      - ruff check . && ruff format --check . && mypy src/
+
+  - id: test
+    name: gcr.io/cloud-builders/docker
+    args:
+      - run
+      - --rm
+      - ${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}
+      - pytest
+      - -v
+      - --tb=short
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -lc
+      - |
+          set -euo pipefail
+
+          if [[ "${_RUN_DEPLOY}" != "true" ]]; then
+            echo "Skipping Cloud Run deploy because _RUN_DEPLOY=${_RUN_DEPLOY}"
+            exit 0
+          fi
+
+          if [[ -z "${_DEPLOY_SERVICE}" ]]; then
+            echo "_DEPLOY_SERVICE must be set when _RUN_DEPLOY=true" >&2
+            exit 1
+          fi
+
+          image="${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}"
+          deploy_secrets="${_DEPLOY_SECRETS//;/,}"
+          deploy_env_vars="${_DEPLOY_ENV_VARS//;/,}"
+
+          cmd=(
+            gcloud run deploy "${_DEPLOY_SERVICE}"
+            --image "${image}"
+            --region "${_DEPLOY_REGION}"
+            --platform managed
+            --port "${_DEPLOY_PORT}"
+          )
+
+          if [[ "${_ALLOW_UNAUTHENTICATED}" == "true" ]]; then
+            cmd+=(--allow-unauthenticated)
+          fi
+
+          if [[ -n "${deploy_secrets}" ]]; then
+            cmd+=(--set-secrets "${deploy_secrets}")
+          fi
+
+          if [[ -n "${deploy_env_vars}" ]]; then
+            cmd+=(--set-env-vars "${deploy_env_vars}")
+          fi
+
+          "${cmd[@]}"
+
+images:
+  - ${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}
